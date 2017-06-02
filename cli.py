@@ -1,240 +1,225 @@
+import json
+import math
+from functools import partial
 import warnings
 import logging
 from datetime import datetime
+from collections import OrderedDict
 from collections import namedtuple
+from collections import defaultdict
 
 from clize import run
 
 import pandas as pd
 import numpy as np
 
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+
+
+import sklearn
+import sklearn.kernel_approximation
+import sklearn.naive_bayes
+import sklearn.cluster
 from sklearn.pipeline import make_pipeline
-from sklearn.decomposition import PCA
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn import datasets
 from sklearn.model_selection import cross_val_score
 
 import torch
+import torch.nn as nn
+from torch.nn.init import xavier_uniform
 
 from grammaropt.grammar import build_grammar
 from grammaropt.grammar import extract_rules_from_grammar
 from grammaropt.random import RandomWalker
-from grammaropt.types import Int, Float
 from grammaropt.rnn import RnnModel
 from grammaropt.rnn import RnnAdapter
 from grammaropt.rnn import RnnWalker
+from grammaropt.types import Int, Float
+from grammaropt.rnn import optimize as rnn_optimize
+from grammaropt.random import optimize as random_optimize
 
-from grammar import generate_rules
 
 from lightjob.cli import load_db
+from lightjob.utils import summarize
 import random
 
+import pipeline
+import formula
+
+from hypers import generate_job
+from data import get_dataset
 
 warnings.filterwarnings("ignore")
-fmt = ''
-#logging.basicConfig(format=fmt)
-
 log = logging.getLogger(__name__)
-log.setLevel('DEBUG')
-
-hndl = logging.FileHandler('log',  mode='w')
-hndl.setLevel('DEBUG')
-log.addHandler(hndl)
-
+#log.setLevel('DEBUG')
+#hndl = logging.FileHandler('log',  mode='w')
+#hndl.setLevel('DEBUG')
+#log.addHandler(hndl)
 hndl = logging.StreamHandler()
 log.addHandler(hndl)
 
-EPS = 1e-7
+
+grammars = {
+    'pipeline': pipeline, 
+    'formula': formula
+}
 
 
-def as_str(terminals):
-    return ''.join(map(str, terminals))
+def optim(jobset):
+    optimizers = {'rnn': _optim_rnn_from_params, 'random': _optim_random_from_params}
+    params = generate_job(jobset=jobset)
+    print(json.dumps(params, indent=2))
+    dataset = params['dataset']
+    optimizer = params['optimizer']['name']
+    grammar = params['grammar']
+    random_state = params['random_state']
+    np.random.seed(random_state)
+
+    _optim = optimizers[optimizer]
+    start_time = datetime.now()
+    stats = _optim(params)
+    end_time = datetime.now()
+    
+    db = load_db()
+    db.safe_add_job(
+        params, 
+        stats=stats, 
+        jobset=jobset, 
+        dataset=dataset, 
+        grammar=grammar, 
+        optimizer=optimizer,
+        start=start_time,
+        end=end_time)
 
 
-def evaluate(code, X, y, scoring=None, cv=5):
-    try:
-        clf = _build_estimator(code)
-        scores = cross_val_score(clf, X, y, scoring=scoring, cv=cv)
-    except Exception as ex:
-        log.error('Error on code : {}'.format(code))
-        log.error('Details : {}'.format(ex))
-        log.error('')
-        return 0.
-    else:
-        return float(np.mean(scores))
+def _optim_random_from_params(params):
+    dataset = params['dataset']
+    random_state = params['random_state']
 
+    opt = params['optimizer']['params']
+    min_depth = opt['min_depth']
+    max_depth = opt['max_depth']
+    strict_depth_limit = opt['strict_depth_limit']
+    nb_iter = opt['nb_iter']
 
-def _build_estimator(code):
-    import sklearn
-    import sklearn.kernel_approximation
-    import sklearn.naive_bayes
-    import sklearn.cluster
-    import xgboost
-    clf = eval(code)
-    return clf
+    mod = grammars[params['grammar']]
+    grammar = mod.grammar
 
-Config = namedtuple('Config',[
-    'grammar',
-    'nb_iter',
-    'X',
-    'y',
-    'min_depth',
-    'max_depth',
-    'strict_depth_limit',
-    'cv',
-    'random_state'
-])
-def optim(*, optimizer=None, nb_iter=2, dataset='digits', 
-          min_depth=1, max_depth=5, strict_depth_limit=False, 
-          label='default', cv=5, random_state=None):
-    start_time = str(datetime.now())
-    optimizers = {'random': _optimize_random, 'rnn': _optimize_rnn}
-    if not optimizer:
-        optimizer = random.choice(list(optimizers.keys()))
-    if not random_state:
-        random_state = random.randint(1, 1000000)
     X, y = get_dataset(dataset)
-    rules, types = generate_rules()
-    grammar = build_grammar(rules, types=types)
-    opt = optimizers[optimizer]
-    config = Config(
-        grammar=grammar,
-        nb_iter=nb_iter,
-        X=X, y=y,
+    
+    score_func = partial(mod.score, X=X, y=y, **params['score'])
+
+    wl = RandomWalker(
+        grammar=grammar, 
         min_depth=min_depth, 
-        max_depth=max_depth,
+        max_depth=max_depth, 
         strict_depth_limit=strict_depth_limit,
-        cv=cv,
         random_state=random_state
     )
-    stats = opt(config)
-    end_time = str(datetime.now())
-    log.info('Save in db')
-    content = config._asdict()
-    del content['X']
-    del content['y']
-    del content['grammar']
-    db = load_db()
-    s = db.add_job(content, stats=stats, label=label, dataset=dataset, optimizer=optimizer)
-    db.job_update(s, {'start': start_time, 'end': end_time})
+    codes, scores = random_optimize(
+        score_func, 
+        wl, 
+        nb_iter=nb_iter
+    )
+    stats = {'codes': codes, 'scores': scores}
+    return stats
 
 
-def _optimize_random(config):
-    cf = config
-    wl = RandomWalker(
-        cf.grammar, 
-        min_depth=cf.min_depth, max_depth=cf.max_depth, 
-        strict_depth_limit=cf.strict_depth_limit, 
-        random_state=cf.random_state)
-    codes = []
-    scores = []
-    for it in range(cf.nb_iter):
-        log.info('Generate code...')
-        wl.walk()
-        code = as_str(wl.terminals)
-        log.info('Evaluate...')
-        log.info(code)
-        score = evaluate(code, cf.X, cf.y, cv=cf.cv)
-        codes.append(code)
-        scores.append(score)
-        log.info('iteration {}'.format(it))
-    return {'codes': codes, 'scores': scores}
+def _optim_rnn_from_params(params):
+    dataset = params['dataset']
+    random_state = params['random_state']
+    
+    opt = params['optimizer']['params']
+    min_depth = opt['min_depth']
+    max_depth = opt['max_depth']
+    strict_depth_limit = opt['strict_depth_limit']
+    nb_iter = opt['nb_iter']
 
-
-def _optimize_rnn(config):
-    cf = config
-    rules = extract_rules_from_grammar(cf.grammar)
-    tok_to_id = {r: i for i, r in enumerate(rules)}
-    # set hyper-parameters and build RNN model
+    mod = grammars[params['grammar']]
+    grammar = mod.grammar
+    rules = mod.rules
+    rules = list(rules)
+    def key(r):
+        if r.name != '':
+            return r.name
+        elif r.__class__.__name__ == "Literal":
+            return r.literal
+        elif r.__class__.__name__ == "Sequence":
+            return str(tuple(key(m) for m in r.members))
+        else:
+            return r.name
+    # sort rules for reproducibility
+    rules = sorted(rules, key=key)
+    tok_to_id = OrderedDict()#OrderedDict for reproducibility
+    for i, r in enumerate(rules):
+        tok_to_id[r] = i
+    X, y = get_dataset(dataset)
+    
+    score_func = partial(mod.score, X=X, y=y, **params['score'])
+    
     vocab_size = len(rules)
-    emb_size = 128
-    hidden_size = 128
+    emb_size = opt['emb_size']
+    hidden_size = opt['hidden_size']
     nb_features = 2
-    lr = 1e-3
-    gamma = 0.9
+    algo = opt['algo']
+    gamma = opt['gamma']
+    ih_std = opt['init_ih_std']
+    hh_std = opt['init_hh_std']
+
+    torch.manual_seed(random_state) # for LSTM initialization
     model = RnnModel(
         vocab_size=vocab_size, 
         emb_size=emb_size, 
         hidden_size=hidden_size, 
         nb_features=nb_features)
-    optim = torch.optim.Adam(model.parameters(), lr=lr) 
-    rnn = RnnAdapter(model, tok_to_id, random_state=cf.random_state)
-    # optimization loop
-    R_avg = 0.
-    wl = RnnWalker(grammar=cf.grammar, rnn=rnn)
-    codes = []
-    scores = []
-    for it in range(cf.nb_iter):
-        log.info('Generate code...')
-        wl.walk()
-        code = as_str(wl.terminals)
-        log.info('Evaluate...')
-        R = evaluate(code, cf.X, cf.y, cv=cf.cv)
-        R_avg = R_avg * gamma + R * (1 - gamma)
-        model.zero_grad()
-        log.info('Learn...')
-        loss = (R - R_avg) * wl.compute_loss()
-        loss.backward()
-        optim.step()
-        codes.append(code)
-        scores.append(R)
-    return {'codes': codes, 'scores': scores}
+    
+    def weights_init(m):
+        if isinstance(m, nn.LSTM):
+            m.weight_ih_l0.data.normal_(0, ih_std)
+            m.weight_hh_l0.data.normal_(0, hh_std)
+        elif isinstance(m, nn.Linear):
+            xavier_uniform(m.weight.data)
+            m.bias.data.fill_(0)
+    model.apply(weights_init)
+    
+    algos = {'sgd': torch.optim.SGD, 'adam': torch.optim.Adam}
+    algo_cls = algos[algo['name']]
+    algo_params = algo['params']
+    optim = algo_cls(model.parameters(), **algo_params)
+    rnn = RnnAdapter(
+        model, 
+        tok_to_id,
+        random_state=random_state
+    )
+    wl = RnnWalker(
+        grammar=grammar, 
+        rnn=rnn,
+        min_depth=min_depth, 
+        max_depth=max_depth, 
+        strict_depth_limit=strict_depth_limit,
+    )
+    codes, scores = rnn_optimize(
+        score_func, 
+        wl, 
+        optim,
+        nb_iter=nb_iter
+    )
+    stats = {'codes': codes, 'scores': scores}
+    return stats
 
 
-def get_dataset(name):
-    from sklearn import datasets
 
-    if name == 'digits':
-        dataset = datasets.load_digits()
-        X = dataset['data']
-        y = dataset['target']
-        return X, y
-    elif name == "iris":
-        dataset = datasets.load_iris()
-        X = dataset['data']
-        y = dataset['target']
-        return X, y
-    else:
-        raise ValueError(name)
-
-
-def show_grammar():
-    rules, types = generate_rules()
-    print(rules)
-
-
-def show():
-    rules, types = generate_rules()
-    grammar = build_grammar(rules=rules, types=types)
-    for _ in range(10):
-        wl = RandomWalker(grammar, min_depth=1, max_depth=5, random_state=1)
-        wl.walk()
-        print(as_str(wl.terminals))
-
-def plots(*, label='base'):
-    import matplotlib as mpl
-    mpl.use('Agg')
-    import matplotlib.pyplot as plt
-    import pandas as pd
-    import seaborn as sns
+def plot(job_summary):
     db = load_db()
-    df = []
-    for optim in ('rnn', 'random'):
-        jobs = db.jobs_with(label=label, optimizer=optim)
-        jobs = list(jobs)
-        stats = [j['stats'] for j in jobs]
-        for stat in stats:
-            stat['optim'] = optim
-            stat['score'] = max(stat['scores'])
-            del stat['scores']
-            df.append(stat)
-    df = pd.DataFrame(df)
-    print(df)
-    df = df.groupby('optim').mean().reset_index()
-    sns.barplot(x='optim', y='score', data=df)
+    job = db.get_job_by_summary(job_summary)
+    scores = job['stats']['scores']
+    scores = np.maximum.accumulate(scores)
+    fig = plt.figure()
+    plt.plot(scores)
     plt.savefig('out.png')
 
-
 if __name__ == '__main__':
-    run([optim, show_grammar, show, plots])
+    run([optim, plot])

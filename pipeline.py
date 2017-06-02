@@ -1,11 +1,24 @@
+import logging
 from collections import OrderedDict
 import numpy as np
 from tpot.config_classifier import classifier_config_dict
 
+import sklearn
+from sklearn.pipeline import make_pipeline
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import StratifiedKFold
+
+from grammaropt.grammar import extract_rules_from_grammar
 from grammaropt.grammar import build_grammar
 from grammaropt.types import Int
 from grammaropt.types import Float
 from grammaropt.random import RandomWalker
+
+log = logging.getLogger(__name__)
+hndl = logging.StreamHandler()
+log.addHandler(hndl)
+
+
 rules_tpl = r"""pipeline = "make_pipeline" op elements cm estimator cp
 elements = (preprocessor cm elements) / preprocessor
 preprocessor = {preprocessors} 
@@ -30,8 +43,14 @@ def _ordered(d):
 classifier_config_dict = _ordered(classifier_config_dict)
 
 
-def generate_rules(d=classifier_config_dict):
-    names = set(d.keys()) - set(["tpot.built_in_operators.ZeroCount", "sklearn.feature_selection.SelectFromModel", "xgboost.XGBClassifier"])
+blacklist = [
+    "tpot.built_in_operators.ZeroCount", 
+    "sklearn.feature_selection.SelectFromModel", 
+    "xgboost.XGBClassifier", 
+    "sklearn.feature_selection.RFE"
+]
+def _generate_rules(d=classifier_config_dict):
+    names = set(d.keys()) - set(blacklist)
     names = sorted(names)
     preprocessors = [k for k in names if 'Classifier' not in k and 'NB' not in k and 'svm' not in k]
     clf = list(set(names) - set(preprocessors))
@@ -87,5 +106,29 @@ def generate_rules(d=classifier_config_dict):
     types["float"] = Float(0., 1.)
     return rules, types
 
+
 def _slug(s):
     return s.lower().replace('.', '_')
+
+
+def score(code, X, y, scoring=None, cv=5):
+    try:
+        clf = _build_estimator(code)
+        clf.fit(X, y)
+        scores = cross_val_score(clf, X, y, scoring=scoring, cv=StratifiedKFold(n_splits=cv, shuffle=True))
+    except Exception as ex:
+        log.error('Error on code : {}'.format(code))
+        log.error('Details : {}'.format(ex))
+        log.error('')
+        return 0.
+    else:
+        return float(np.mean(scores))
+
+def _build_estimator(code):
+    clf = eval(code)
+    return clf
+
+
+rules, types = _generate_rules()
+grammar = build_grammar(rules, types)
+rules = extract_rules_from_grammar(grammar)
