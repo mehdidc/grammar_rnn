@@ -51,6 +51,7 @@ import formula
 
 from hypers import generate_job
 from data import get_dataset
+from hypers import _auc
 
 warnings.filterwarnings("ignore")
 log = logging.getLogger(__name__)
@@ -216,10 +217,19 @@ def plot(job_summary):
     db = load_db()
     job = db.get_job_by_summary(job_summary)
     scores = job['stats']['scores']
-    scores = np.maximum.accumulate(scores)
+    #scores = np.max.accumulate(scores)
+    #scores = pd.ewma(pd.Series(scores), span=1./0.01-1)
     fig = plt.figure()
     plt.plot(scores)
     plt.savefig('out.png')
 
+def best_hypers(jobset='rnn_hypers_pipeline'):
+    rng = np.random
+    db = load_db()
+    jobs = db.jobs_with(jobset=jobset, optimizer='rnn')
+    jobs = sorted(jobs, key=lambda j:_auc(j['stats']['scores']), reverse=True)
+    for j in jobs:
+        print(json.dumps(j['content'], indent=2), _auc(j['stats']['scores']), j['summary'], max(j['stats']['scores']))
+
 if __name__ == '__main__':
-    run([optim, plot])
+    run([optim, plot, best_hypers])

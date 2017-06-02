@@ -99,9 +99,9 @@ def _rnn_hypers(params):
 def rnn_pipeline():
     rng = np.random
     db = load_db()
-    jobs = db.jobs_with(jobset='rnn_hypers', optimizer='rnn')
+    jobs = db.jobs_with(jobset='rnn_hypers_pipeline', optimizer='rnn')
     jobs = sorted(jobs, key=lambda j:_auc(j['stats']['scores']), reverse=True)
-    jobs = jobs[0:20]
+    jobs = jobs[0:1]
     for j in jobs:
         print(j['summary'], j['content'], _auc(j['stats']['scores']))
     job = rng.choice(jobs)
