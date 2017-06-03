@@ -1,3 +1,4 @@
+import pandas as pd
 from sklearn.metrics import auc
 import numpy as np
 from lightjob.cli import load_db
@@ -94,6 +95,20 @@ def _rnn_hypers(params):
     params['random_state'] = _random_state() 
     return params
 
+def retrain_best():
+    rng = np.random
+    crit = _monotonicity
+    db = load_db()
+    jobs = db.jobs_with(jobset='rnn_hypers_pipeline')
+    jobs = sorted(jobs, key=lambda j:crit(j['stats']['scores']), reverse=True)
+    jobs = jobs[1:2]
+    for j in jobs:
+        print(j['summary'], crit(j['stats']['scores']))
+    job = rng.choice(jobs)
+    params = job['content']
+    params['random_state'] = _random_state() 
+    params['source'] = job['summary']
+    return params
 
 
 def rnn_pipeline():
@@ -112,6 +127,11 @@ def rnn_pipeline():
         'cv': 5
     }
     return params
+
+def _monotonicity(scores):
+    scores = np.array(scores)
+    avg = pd.ewma(pd.Series(scores[0:-1]), span=1./0.1-1)
+    return (scores[1:] - avg).mean()
 
 def _auc(scores):
     x = np.linspace(0, 1, len(scores))

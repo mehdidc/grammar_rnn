@@ -51,7 +51,7 @@ import formula
 
 from hypers import generate_job
 from data import get_dataset
-from hypers import _auc
+from hypers import _auc, _monotonicity
 
 warnings.filterwarnings("ignore")
 log = logging.getLogger(__name__)
@@ -227,9 +227,34 @@ def best_hypers(jobset='rnn_hypers_pipeline'):
     rng = np.random
     db = load_db()
     jobs = db.jobs_with(jobset=jobset, optimizer='rnn')
-    jobs = sorted(jobs, key=lambda j:_auc(j['stats']['scores']), reverse=True)
+    crit = _auc
+    jobs = sorted(jobs, key=lambda j:crit(j['stats']['scores']), reverse=True)
     for j in jobs:
-        print(json.dumps(j['content'], indent=2), _auc(j['stats']['scores']), j['summary'], max(j['stats']['scores']))
+        scores = j['stats']['scores']
+        codes = j['stats']['codes']
+        print(json.dumps(j['content'], indent=2), 
+             j['summary'], 
+             crit(scores), 
+             np.max(scores),
+             codes[np.argmax(scores)])
 
+def test():
+    rules = pipeline.rules
+    tok_to_id = OrderedDict()#OrderedDict for reproducibility
+    for i, r in enumerate(rules):
+        tok_to_id[r] = i
+    model = RnnModel(vocab_size=len(tok_to_id), nb_features=2) 
+    rnn = RnnAdapter(model, tok_to_id)
+    wl = RnnWalker(
+        grammar=pipeline.grammar, 
+        rnn=rnn,
+        min_depth=1, 
+        max_depth=5, 
+        strict_depth_limit=False,
+    )
+    for _ in range(100):
+        wl.walk()
+        print(len(list(filter(lambda d:d.action=='rule', wl._decisions))))
+ 
 if __name__ == '__main__':
-    run([optim, plot, best_hypers])
+    run([optim, plot, best_hypers, test])
