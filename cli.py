@@ -33,10 +33,12 @@ from torch.nn.init import xavier_uniform
 
 from grammaropt.grammar import build_grammar
 from grammaropt.grammar import extract_rules_from_grammar
+from grammaropt.grammar import as_str
 from grammaropt.random import RandomWalker
 from grammaropt.rnn import RnnModel
 from grammaropt.rnn import RnnAdapter
 from grammaropt.rnn import RnnWalker
+from grammaropt.rnn import RnnDeterministicWalker
 from grammaropt.types import Int, Float
 from grammaropt.rnn import optimize as rnn_optimize
 from grammaropt.random import optimize as random_optimize
@@ -51,7 +53,7 @@ import formula
 
 from hypers import generate_job
 from data import get_dataset
-from hypers import _auc, _monotonicity
+from hypers import _auc, _monotonicity, _corr
 
 warnings.filterwarnings("ignore")
 log = logging.getLogger(__name__)
@@ -212,6 +214,21 @@ def _optim_rnn_from_params(params):
     return stats
 
 
+def best_hypers(jobset='rnn_hypers_pipeline'):
+    rng = np.random
+    db = load_db()
+    jobs = db.jobs_with(jobset=jobset, optimizer='rnn')
+    crit = _corr
+    jobs = sorted(jobs, key=lambda j:crit(j['stats']['scores']), reverse=True)
+    for j in jobs:
+        scores = j['stats']['scores']
+        codes = j['stats']['codes']
+        print(json.dumps(j['content'], indent=2), 
+             j['summary'], 
+             crit(scores), 
+             np.max(scores),
+             codes[np.argmax(scores)])
+
 
 def plot(job_summary):
     db = load_db()
@@ -223,38 +240,147 @@ def plot(job_summary):
     plt.plot(scores)
     plt.savefig('out.png')
 
-def best_hypers(jobset='rnn_hypers_pipeline'):
-    rng = np.random
+
+def plots(jobset='pipeline'):
     db = load_db()
-    jobs = db.jobs_with(jobset=jobset, optimizer='rnn')
-    crit = _auc
-    jobs = sorted(jobs, key=lambda j:crit(j['stats']['scores']), reverse=True)
+    jobs = db.jobs_with(jobset=jobset)
+    rows = []
     for j in jobs:
-        scores = j['stats']['scores']
-        codes = j['stats']['codes']
-        print(json.dumps(j['content'], indent=2), 
-             j['summary'], 
-             crit(scores), 
-             np.max(scores),
-             codes[np.argmax(scores)])
+        max_score = 0.
+        scores = (j['stats']['scores'])
+        for it, score in enumerate(scores):
+            max_score = max(score, max_score)
+            #top = sorted(scores[0:it + 1])[::-1][0:20]
+            #top_score = sum(top) / len(top) 
+            rows.append({'score': max_score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary']})
+    df = pd.DataFrame(rows)
+    for opt in ('rnn', 'random'):
+        color = {'rnn': 'blue', 'random': 'green'}[opt]
+        d = df[df['optimizer'] == opt]
+        d = d.groupby('iter').agg(['mean', 'std']).reset_index()
+        d = d.sort_values(by='iter')
+        mu, std = d['score']['mean'], d['score']['std']
+        plt.plot(d['iter'], mu, label=opt, color=color)
+        plt.fill_between(d['iter'], mu - std, mu + std, alpha=0.2, color=color, linewidth=0)
+    plt.legend()
+    plt.savefig('out.png')
+    """
+    print(df.groupby(['optimizer', 'id']).max().reset_index().groupby('optimizer').agg(('mean', 'std'))['score'])
+    plt.clf()
+    for opt in ('rnn', 'random'):
+        color = {'rnn': 'blue', 'random': 'green'}[opt]
+        d = df[df['optimizer'] == opt]
+        d = d.sort_values(by='score', ascending=False)
+        id_ = d.iloc[0]['id']
+        d = df[df['id']==id_]
+        d = d.sort_values(by='iter')
+        plt.plot(d['iter'], d['score'], label=opt, color=color)
+    plt.legend()
+    plt.savefig('out.png')
+    """
+
 
 def test():
-    rules = pipeline.rules
-    tok_to_id = OrderedDict()#OrderedDict for reproducibility
-    for i, r in enumerate(rules):
-        tok_to_id[r] = i
-    model = RnnModel(vocab_size=len(tok_to_id), nb_features=2) 
-    rnn = RnnAdapter(model, tok_to_id)
-    wl = RnnWalker(
-        grammar=pipeline.grammar, 
+    from queue import PriorityQueue
+    from heapq import heappush, heappop
+    mod = formula
+    dataset = 'x*x+cos(x)*sin(x)'
+    gamma = 0.5
+    batch_size = 10
+    qsize = 100
+    q = []
+    rules = mod.rules
+    tok_to_id = {r: i for i, r in enumerate(rules)}
+    model = RnnModel(vocab_size=len(tok_to_id), nb_features=2, hidden_size=256) 
+    rnn = RnnAdapter(model, tok_to_id, random_state=42)
+    rnnwl = RnnWalker(
+        grammar=mod.grammar, 
         rnn=rnn,
         min_depth=1, 
-        max_depth=5, 
+        max_depth=10, 
         strict_depth_limit=False,
     )
-    for _ in range(100):
+    randomwl = RandomWalker(
+        grammar=mod.grammar,
+        min_depth=1,
+        max_depth=10,
+        strict_depth_limit=False
+    )
+    optim = torch.optim.Adam(model.parameters(), lr=1e-3)
+    X = []
+    y = []
+    R_avg = 0.
+    X, y = get_dataset(dataset)
+    rng = np.random
+
+    R_list = []
+    code_list = []
+    eps = 0.8
+    for it in range(1000):
+        # generate
+        if rng.uniform() <= eps:
+            rnnwl.walk()
+            code = as_str(rnnwl.terminals)
+        else:
+            print('random')
+            randomwl.walk()
+            code = as_str(randomwl.terminals)
+        # get score
+        R = mod.score(code, X, y)
+        R_avg = R_avg * gamma + R * (1 - gamma)
+        code_list.append(code)
+        R_list.append(R)
+        l = list(filter(lambda r:r>0, R_list))
+        print(R, code, _corr(l))
+        # update
+        wl = RnnDeterministicWalker.from_str(mod.grammar, rnn, code)
         wl.walk()
-        print(len(list(filter(lambda d:d.action=='rule', wl._decisions))))
+        model.zero_grad()
+        loss = (R - R_avg) * wl.compute_loss()
+        #pred = model.out_value(rnnwl._state[0].view(1, -1))
+        #loss_score = (pred[0, 0] - R) ** 2
+        #loss += loss_score
+        loss.backward()
+        optim.step()
+
+        """ 
+        val = (R, code)
+        if len(q) < qsize:
+            heappush(q, val)
+        else:
+            R_prev, code_prev = heappop(q)
+            if R_prev > R:
+                R = R_prev
+                code = code_prev
+                val = (R, code)
+            heappush(q, val)
+        if it < batch_size:
+            continue
+        loss = 0.
+        model.zero_grad()
+        q_R_list = [mr for mr, _ in q]
+        q_code_list = [code for _, code in q]
+        p = np.array(q_R_list)
+        p /= p.sum()
+        p[-1] = 1 - p[0:-1].sum()
+        for _ in range(batch_size):
+            idx = rng.choice(np.arange(len(q_R_list)))
+            code = q_code_list[idx]
+            R = q_R_list[idx]
+            wl = RnnDeterministicWalker.from_str(mod.grammar, rnn, code)
+            wl.walk()
+            loss += (R - R_avg) * wl.compute_loss()
+            pred = model.out_value(wl._state[0].view(1, -1))
+            loss_score = (pred[0, 0] - R) ** 2
+            loss += loss_score
+     
+        loss /= batch_size
+        loss.backward()
+        optim.step()
+        """
+    fig = plt.figure()
+    plt.plot(R_list)
+    plt.savefig('out.png')
  
 if __name__ == '__main__':
-    run([optim, plot, best_hypers, test])
+    run([optim, plot, best_hypers, test, plots])

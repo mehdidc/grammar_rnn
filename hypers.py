@@ -1,3 +1,5 @@
+import random
+
 import pandas as pd
 from sklearn.metrics import auc
 import numpy as np
@@ -61,7 +63,8 @@ base_rnn = {
     }
 }
 
-def rnn_hypers():
+
+def rnn_hypers_formula():
     params = base_formula.copy()
     params['optimizer'] = base_rnn.copy()
     params = _rnn_hypers(params)
@@ -95,13 +98,18 @@ def _rnn_hypers(params):
     params['random_state'] = _random_state() 
     return params
 
-def retrain_best():
+
+def retrain_best_rnn_hypers_pipeline():
+    return _retrain_best_from('rnn_hypers_pipeline')
+
+
+def _retrain_best_from(jobset):
     rng = np.random
-    crit = _monotonicity
+    crit = _auc
     db = load_db()
-    jobs = db.jobs_with(jobset='rnn_hypers_pipeline')
+    jobs = db.jobs_with(jobset=jobset)
     jobs = sorted(jobs, key=lambda j:crit(j['stats']['scores']), reverse=True)
-    jobs = jobs[1:2]
+    jobs = jobs[0:1]
     for j in jobs:
         print(j['summary'], crit(j['stats']['scores']))
     job = rng.choice(jobs)
@@ -111,22 +119,33 @@ def retrain_best():
     return params
 
 
+def pipeline():
+    #func = random.choice((rnn_pipeline, random_pipeline))
+    func = rnn_pipeline
+    return func()
+
 def rnn_pipeline():
-    rng = np.random
     db = load_db()
-    jobs = db.jobs_with(jobset='rnn_hypers_pipeline', optimizer='rnn')
-    jobs = sorted(jobs, key=lambda j:_auc(j['stats']['scores']), reverse=True)
-    jobs = jobs[0:1]
-    for j in jobs:
-        print(j['summary'], j['content'], _auc(j['stats']['scores']))
-    job = rng.choice(jobs)
+    job = db.get_job_by_summary('789020b42296b6d16b2fb80345c8e71f')
     params = job['content']
+    params['optimizer']['params']['nb_iter'] = 100
     params['dataset'] = 'digits'
     params['grammar'] = 'pipeline'
-    params['score'] = {
-        'cv': 5
-    }
+    params['score'] = base_pipeline['score']
+    params['random_state'] = _random_state()
     return params
+
+
+def random_pipeline():
+    params = base_pipeline.copy()
+    params['optimizer'] = base_random.copy()
+    params['optimizer']['params']['nb_iter'] = 100
+    params['dataset'] = 'digits'
+    params['grammar'] = 'pipeline'
+    params['random_state'] = _random_state() 
+    return params
+
+   
 
 def _monotonicity(scores):
     scores = np.array(scores)
@@ -137,6 +156,13 @@ def _auc(scores):
     x = np.linspace(0, 1, len(scores))
     y = np.maximum.accumulate(scores)
     return auc(x, y)
+
+def _corr(scores):
+    x = np.linspace(0, 1, len(scores))
+    y = scores
+    c = np.corrcoef(x, y)[0, 1]
+    return c
+
 
 
 def test_formula_random():

@@ -2,6 +2,7 @@ import logging
 from collections import OrderedDict
 import numpy as np
 from tpot.config_classifier import classifier_config_dict
+from lightjob.utils import summarize
 
 import sklearn
 from sklearn.pipeline import make_pipeline
@@ -49,14 +50,21 @@ blacklist = [
     "xgboost.XGBClassifier", 
     "sklearn.feature_selection.RFE"
 ]
-def _generate_rules(d=classifier_config_dict):
+def val_to_str(val):
+    replace = dict(zip('0123456789', 'ijklmnopqr'))
+    replace['.'] = 's'
+    replace['e'] = 't'
+    replace['-'] = 'u'
+    s = str(val)
+    s = [replace[c] for c in s]
+    return ''.join(s)
+
+def _generate_rules(d=classifier_config_dict, discrete=False):
     names = set(d.keys()) - set(blacklist)
     names = sorted(names)
     preprocessors = [k for k in names if 'Classifier' not in k and 'NB' not in k and 'svm' not in k]
     clf = list(set(names) - set(preprocessors))
     clf = sorted(clf)
-    #preprocessors = preprocessors[0:2]
-    #clf = clf[0:2]
     rules = OrderedDict()
     for e in preprocessors + clf:
         comps = ['"{}"'.format(e), "op"]
@@ -74,9 +82,19 @@ def _generate_rules(d=classifier_config_dict):
                 if v == [True, False] or v == [True] or v == [False]:
                     rules[ks] = "bool"
                 elif type(v[0]) == int:
-                    rules[ks] = "int"
+                    if discrete:
+                        for val in v:
+                            rules[val_to_str(val)] = '"{}"'.format(val)
+                        rules[ks] = " / ".join(map(val_to_str, v))
+                    else:
+                        rules[ks] = "int"
                 elif type(v[0]) == float:
-                    rules[ks] = "float"
+                    if discrete:
+                        for val in v:
+                            rules[val_to_str(val)] = '"{}"'.format(val)
+                        rules[ks] = " / ".join(map(val_to_str, v))
+                    else:
+                        rules[ks] = "float"
                 elif type(v[0]) == str:
                     rules[ks] = " / ".join('"\\"{}\\""'.format(val) for val in v)
                 else:
@@ -129,6 +147,6 @@ def _build_estimator(code):
     return clf
 
 
-rules, types = _generate_rules()
+rules, types = _generate_rules(discrete=True)
 grammar = build_grammar(rules, types)
 rules = extract_rules_from_grammar(grammar)
