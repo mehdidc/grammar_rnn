@@ -100,12 +100,27 @@ def _generate_rules(d=classifier_config_dict, discrete=False):
                 else:
                     raise ValueError(k, v)
             elif type(v) == range:
-                rules[ks] = "int"
+                if discrete:
+                    for val in v:
+                        rules[val_to_str(val)] = '"{}"'.format(val)
+                    rules[ks] = " / ".join(map(val_to_str, v))
+                else:
+                    rules[ks] = "int"
             elif type(v) == np.ndarray:
                 if 'int' in str(v.dtype):
-                    rules[ks] = "int"
+                    if discrete:
+                        for val in v:
+                            rules[val_to_str(val)] = '"{}"'.format(val)
+                        rules[ks] = " / ".join(map(val_to_str, v))
+                    else:
+                        rules[ks] = "int"     
                 elif 'float' in str(v.dtype):
-                    rules[ks] = "float"
+                    if discrete:
+                        for val in v:
+                            rules[val_to_str(val)] = '"{}"'.format(val)
+                        rules[ks] = " / ".join(map(val_to_str, v))
+                    else:
+                        rules[ks] = "float"
                 else:
                     raise ValueError(k, v)
             elif v == None:
@@ -129,24 +144,33 @@ def _slug(s):
     return s.lower().replace('.', '_')
 
 
-def score(code, X, y, scoring=None, cv=5):
+def score(code, data, scoring=None, cv=5):
+    X_train, X_test, y_train, y_test = data
     try:
         clf = _build_estimator(code)
-        clf.fit(X, y)
-        scores = cross_val_score(clf, X, y, scoring=scoring, cv=StratifiedKFold(n_splits=cv, shuffle=True))
+        #clf.fit(X, y)
+        clf.fit(X_train, y_train)
+        score = (clf.predict(X_test) == y_test).mean()
+        #scores = cross_val_score(clf, X, y, scoring=scoring, cv=StratifiedKFold(n_splits=cv, shuffle=True))
     except Exception as ex:
         log.error('Error on code : {}'.format(code))
         log.error('Details : {}'.format(ex))
         log.error('')
         return 0.
     else:
-        return float(np.mean(scores))
+        print(score)
+        return float(score)
+
 
 def _build_estimator(code):
     clf = eval(code)
     return clf
 
-
-rules, types = _generate_rules(discrete=True)
-grammar = build_grammar(rules, types)
+discrete = True
+rules, types = _generate_rules(discrete=discrete)
+print(rules)
+if discrete:
+    grammar = build_grammar(rules)
+else:
+    grammar = build_grammar(rules, types)
 rules = extract_rules_from_grammar(grammar)

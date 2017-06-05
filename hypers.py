@@ -99,37 +99,17 @@ def _rnn_hypers(params):
     return params
 
 
-def retrain_best_rnn_hypers_pipeline():
-    return _retrain_best_from('rnn_hypers_pipeline')
-
-
-def _retrain_best_from(jobset):
-    rng = np.random
-    crit = _auc
-    db = load_db()
-    jobs = db.jobs_with(jobset=jobset)
-    jobs = sorted(jobs, key=lambda j:crit(j['stats']['scores']), reverse=True)
-    jobs = jobs[0:1]
-    for j in jobs:
-        print(j['summary'], crit(j['stats']['scores']))
-    job = rng.choice(jobs)
-    params = job['content']
-    params['random_state'] = _random_state() 
-    params['source'] = job['summary']
-    return params
-
-
 def pipeline():
-    #func = random.choice((rnn_pipeline, random_pipeline))
-    func = rnn_pipeline
+    func = random.choice((rnn_pipeline, random_pipeline))
     return func()
+
 
 def rnn_pipeline():
     db = load_db()
-    job = db.get_job_by_summary('789020b42296b6d16b2fb80345c8e71f')
+    job = db.get_job_by_summary('??????????????')
     params = job['content']
-    params['optimizer']['params']['nb_iter'] = 100
-    params['dataset'] = 'digits'
+    params['optimizer']['params']['nb_iter'] = 1000
+    params['dataset'] = 'whitewine'
     params['grammar'] = 'pipeline'
     params['score'] = base_pipeline['score']
     params['random_state'] = _random_state()
@@ -139,23 +119,50 @@ def rnn_pipeline():
 def random_pipeline():
     params = base_pipeline.copy()
     params['optimizer'] = base_random.copy()
-    params['optimizer']['params']['nb_iter'] = 100
-    params['dataset'] = 'digits'
+    params['optimizer']['params']['nb_iter'] = 1000
+    params['dataset'] = 'whitewine'
     params['grammar'] = 'pipeline'
     params['random_state'] = _random_state() 
     return params
 
-   
+
+def formula():
+    func = random.choice((rnn_formula, random_formula))
+    return func()
+
+
+def rnn_formula():
+    db = load_db()
+    job = db.get_job_by_summary('??????????????????????')
+    params = job['content']
+    params['optimizer']['params']['nb_iter'] = 1000
+    params['dataset'] = 'x*sin(x)+cos(x)/x'
+    params['grammar'] = 'formula'
+    params['score'] = base_formula['score']
+    params['random_state'] = _random_state()
+    return params
+
+
+def random_formula():
+    params = base_formula.copy()
+    params['optimizer'] = base_random.copy()
+    params['optimizer']['params']['nb_iter'] = 1000
+    params['dataset'] = 'x*sin(x)+cos(x)/x'
+    params['random_state'] = _random_state() 
+    return params
+ 
 
 def _monotonicity(scores):
     scores = np.array(scores)
     avg = pd.ewma(pd.Series(scores[0:-1]), span=1./0.1-1)
     return (scores[1:] - avg).mean()
 
+
 def _auc(scores):
     x = np.linspace(0, 1, len(scores))
     y = np.maximum.accumulate(scores)
     return auc(x, y)
+
 
 def _corr(scores):
     x = np.linspace(0, 1, len(scores))
@@ -163,6 +170,14 @@ def _corr(scores):
     c = np.corrcoef(x, y)[0, 1]
     return c
 
+
+def _time_to_reach(scores, val):
+    scores = np.array(scores)
+    better = (scores > val)
+    if len(scores[better]) == 0:
+        return float('inf')
+    else:
+        return better.argmax()
 
 
 def test_formula_random():
