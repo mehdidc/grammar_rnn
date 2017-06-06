@@ -1,3 +1,5 @@
+import os
+import time
 import json
 import math
 from functools import partial
@@ -300,7 +302,11 @@ def _optim_frozen_rnn_from_params(params):
     data = get_dataset(dataset)
     score_func = partial(mod.score, data=data, **params['score'])
 
-    model = torch.load(filename)
+    model = torch.load(
+        filename, 
+        map_location=lambda storage, loc: storage #  load on CPU
+    )
+    model.use_cuda = False
     
     rnn = RnnAdapter(
         model, 
@@ -410,136 +416,41 @@ def _plot_learning_curve(df, time='iter', score='score'):
         plt.fill_between(d[time], mu - std, mu + std, alpha=0.2, color=color, linewidth=0)
 
 
-def test():
-    from queue import PriorityQueue
-    from heapq import heappush, heappop
-    mod = pipeline
-    dataset = 'redwine'
-    gamma = 0.9
-    batch_size = 10
-    qsize = 100
-    rules = mod.rules
-    tok_to_id = {r: i for i, r in enumerate(rules)}
-    model = RnnModel(vocab_size=len(tok_to_id), nb_features=2, hidden_size=32) 
-    model.apply(_weights_init)
-    rnn = RnnAdapter(model, tok_to_id, random_state=42)
-    rnnwl = RnnWalker(
-        grammar=mod.grammar, 
-        rnn=rnn,
-        min_depth=1, 
-        max_depth=5, 
-        strict_depth_limit=False,
-    )
-    randomwl = RandomWalker(
-        grammar=mod.grammar,
-        min_depth=1,
-        max_depth=5,
-        strict_depth_limit=False,
-    )
-    optim = torch.optim.Adam(model.parameters(), lr=0.0006)
-    X = []
-    y = []
-    q = []
-    R_avg = 0.
-    R_max = 0.
-    avg_loss = 0.
-    X, y = get_dataset(dataset)
-    rng = np.random
-    R_list = []
-    code_list = []
-    eps = 0.8
-    alpha_avg = 0.
-    for it in range(1000):
-        # generate
-        #eps = (alpha_avg + 1.0) / 2.0
-        eps = 1.0
-        if rng.uniform() <= eps:
-            rnnwl.walk()
-            code = as_str(rnnwl.terminals)
-        else:
-            randomwl.walk()
-            code = as_str(randomwl.terminals)
-        # get score
-        R = mod.score(code, X, y)
-        R_max = max(R, R_max)
-        R_avg = R_avg * gamma + R * (1 - gamma)
-        code_list.append(code)
-        R_list.append(R)
-        # update
-        wl = RnnDeterministicWalker.from_str(mod.grammar, rnn, code)
-        wl.walk()
-        model.zero_grad()
-        alpha = (R - R_avg)
-        alpha = R
-        alpha_avg = alpha_avg * 0.9 + alpha * 0.1
-        loss = alpha * wl.compute_loss()
-        avg_loss = avg_loss * 0.9 + loss.data[0] * 0.1 
-        loss.backward()
-        optim.step()
-
-        print('R:{:.3f} alpha_avg:{:.3f} eps:{:.3f} code:{}'.format(R, alpha_avg, eps, code))
-        """ 
-        val = (R, code)
-        if len(q) < qsize:
-            heappush(q, val)
-        else:
-            R_prev, code_prev = heappop(q)
-            if R_prev > R:
-                R = R_prev
-                code = code_prev
-                val = (R, code)
-            heappush(q, val)
-        if it < batch_size:
-            continue
-        loss = 0.
-        model.zero_grad()
-        q_R_list = [mr for mr, _ in q]
-        q_code_list = [code for _, code in q]
-        p = np.array(q_R_list)
-        p /= p.sum()
-        p[-1] = 1 - p[0:-1].sum()
-        for _ in range(batch_size):
-            idx = rng.choice(np.arange(len(q_R_list)))
-            code = q_code_list[idx]
-            R = q_R_list[idx]
-            wl = RnnDeterministicWalker.from_str(mod.grammar, rnn, code)
-            wl.walk()
-            loss += (R - R_avg) * wl.compute_loss()
-            pred = model.out_value(wl._state[0].view(1, -1))
-            loss_score = (pred[0, 0] - R) ** 2
-            loss += loss_score
-     
-        loss /= batch_size
-        loss.backward()
-        optim.step()
-        """
-    print(max(R_list))
-    fig = plt.figure()
-    plt.plot(R_list)
-    plt.savefig('out.png')
-
-
-def fit(*, jobset='pipeline', grammar='pipeline', out='model.th', cuda=False):
-    nb_epochs = 1
+def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', dataset='digits', cuda=False):
+    nb_epochs = 1000
     mod = grammars[grammar]
     grammar = mod.grammar
     rules = mod.rules
-    gamma = 0.9
+    gamma = 0.99
     min_depth = 1
     max_depth = 5
     strict_depth_limit = False
-
-    lr = 1e-3
+    lr = 1e-4
+    
+    hidden_size = 512
+    emb_size = 128
+    num_layers = 2
+    nb_features = 2
+    ih_std = 0.08
+    hh_std = 0.08
+    
+    out_filename = os.path.join(out_folder, 'model.th')
+    
+    data = get_dataset(dataset)
     model = RnnModel(
         vocab_size=len(rules),
-        hidden_size=256,
-        emb_size=128,
-        cuda=cuda
+        hidden_size=hidden_size,
+        emb_size=emb_size,
+        num_layers=num_layers,
+        nb_features=nb_features,
+        use_cuda=cuda,
     )
-    model.apply(partial(_weights_init, ih_std=0.08, hh_std=0.08))
+    model.apply(partial(_weights_init, ih_std=ih_std, hh_std=hh_std))
     if cuda:
         model = model.cuda()
+    
     optim = torch.optim.Adam(model.parameters(), lr=lr) 
+
     tok_to_id = _get_tok_to_id(rules)
     rnn = RnnAdapter(model, tok_to_id)
     rnnwl = RnnWalker(
@@ -549,33 +460,52 @@ def fit(*, jobset='pipeline', grammar='pipeline', out='model.th', cuda=False):
         max_depth=max_depth, 
         strict_depth_limit=strict_depth_limit
     )
-
     db = load_db()
     jobs = db.jobs_with(jobset=jobset)
     jobs = list(jobs)
     X, Y = _build_dataset_from_jobs(jobs)
-    print(len(X), len(Y))
     avg_loss = 0.
     nb_updates = 0
-    X = X[0:1]
-    Y = Y[0:1]
+
+    X = np.array(X)
+    Y = np.array(Y)
+    indices = np.arange(len(X))
+    np.random.shuffle(indices)
+    X = X[indices]
+    Y = Y[indices]
+    print(len(X), len(Y), np.max(Y))
+    losses = []
     for epoch in range(nb_epochs):
-        print('Epoch {}'.format(epoch))
-        
+        t0 = time.time()
+        indices = np.arange(len(X))
+        np.random.shuffle(indices)
+        X = X[indices]
+        Y = Y[indices]
         for x, y in zip(X, Y):
-            print(x)
+            if y == 0:
+                continue
             dwl = RnnDeterministicWalker.from_str(grammar, rnn, x)
+            model.zero_grad()
             dwl.walk()
-            loss = y * dwl.compute_loss()
+            loss = float(y) * dwl.compute_loss()
             loss.backward()
+            nn.utils.clip_grad_norm(model.parameters(), 2)
             optim.step()
             avg_loss = gamma * avg_loss + loss.data[0] * (1 - gamma)
-            nb_updates += 1
+            losses.append(loss.data[0])
             if nb_updates % 100 == 0:
-                print('Avg loss : {.3f}'.format(avg_loss))
-                rnnwl.walk()
-                expr = as_str(wl.terminals)
-                print(expr)
+                print('Epoch {:04d}/{:04d} Avg loss : {:.3f}'.format(epoch + 1, nb_epochs, avg_loss))
+                pd.Series(losses).to_csv(os.path.join(out_folder, 'stats.csv'))
+                """
+                for _ in range(10):
+                    rnnwl.walk()
+                    expr = as_str(rnnwl.terminals)
+                    print('score : {:.4f}, gen : {}'.format(mod.score(expr, data), expr))
+                """
+            nb_updates += 1
+        delta_t = time.time() - t0
+        print('Time elapsed in epoch {:04f} : {:.3f}s'.format(epoch + 1, delta_t))
+        torch.save(model, out_filename)
      
 
 def _build_dataset_from_jobs(jobs):
@@ -587,8 +517,72 @@ def _build_dataset_from_jobs(jobs):
     y = []
     for code, scores in code_to_score.items():
         X.append(code)
-        y.append(np.mean(scores))
+        y.append(float(np.mean(scores)))
     return X, y
+
+
+def test():
+    mod = pipeline
+    dataset = 'digits'
+    gamma = 0.9
+    batch_size = 10
+    rules = mod.rules
+    
+    tok_to_id = {r: i for i, r in enumerate(rules)}
+    model = RnnModel(
+        vocab_size=len(tok_to_id), 
+        nb_features=2, 
+        hidden_size=32,
+        num_layers=2)
+    model.apply(_weights_init)
+    rnn = RnnAdapter(
+        model, 
+        tok_to_id, 
+        random_state=42)
+    rnnwl = RnnWalker(
+        grammar=mod.grammar, 
+        rnn=rnn,
+        min_depth=1, 
+        max_depth=5, 
+        strict_depth_limit=False,
+    )
+    optim = torch.optim.Adam(model.parameters(), lr=1e-3)
+    X = []
+    y = []
+    R_avg = 0.
+    R_max = 0.
+    avg_loss = 0.
+    data = get_dataset(dataset)
+    rng = np.random
+    R_list = []
+    code_list = []
+    eps = 0.8
+    alpha_avg = 0.
+    for it in range(1000):
+        rnnwl.walk()
+        code = as_str(rnnwl.terminals)
+        R = mod.score(code, data)
+        R_max = max(R, R_max)
+        R_avg = R_avg * gamma + R * (1 - gamma)
+        code_list.append(code)
+        R_list.append(R)
+        print(code) 
+        wl = RnnDeterministicWalker.from_str(mod.grammar, rnn, code)
+        wl.walk()
+        model.zero_grad()
+        alpha = (R - R_avg)
+        alpha_avg = alpha_avg * 0.9 + alpha * 0.1
+        loss = alpha * wl.compute_loss()
+        loss.backward()
+        optim.step()
+        avg_loss = avg_loss * 0.9 + loss.data[0] * 0.1 
+        print('R:{:.3f} alpha_avg:{:.3f} eps:{:.3f} code:{}'.format(R, alpha_avg, eps, code))
+        optim.step()
+    print(max(R_list))
+    fig = plt.figure()
+    plt.plot(R_list)
+    plt.savefig('out.png')
+
 
 if __name__ == '__main__':
     run([optim, plot, best_hypers, test, learning_curve_plot, time_to_reach_plot, fit])

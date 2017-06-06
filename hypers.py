@@ -1,3 +1,4 @@
+import os
 import random
 
 import pandas as pd
@@ -99,28 +100,87 @@ def _rnn_hypers(params):
     return params
 
 
+in_datasets = (
+    "dexter",
+    #"germancredit",
+    #"dorothea",
+    "yeast",
+    "amazon",
+    "secom",
+    "semeion",
+    #"car",
+    "madelon",
+    #"krvskp",
+    "abalone",
+    "winequalitywhite",
+    "waveform",
+)
+out_datasets = (
+    "gisette",
+)
+
+
+# IN
 def pipeline():
     func = random.choice((rnn_pipeline, random_pipeline))
     return func()
 
 
+# IN RNN
 def rnn_pipeline():
     db = load_db()
     job = db.get_job_by_summary('??????????????')
     params = job['content']
     params['optimizer']['params']['nb_iter'] = 1000
-    params['dataset'] = 'whitewine'
+    params['dataset'] = 'semeion'
     params['grammar'] = 'pipeline'
     params['score'] = base_pipeline['score']
     params['random_state'] = _random_state()
     return params
 
 
+# IN Random
 def random_pipeline():
     params = base_pipeline.copy()
     params['optimizer'] = base_random.copy()
-    params['optimizer']['params']['nb_iter'] = 1000
-    params['dataset'] = 'whitewine'
+    params['optimizer']['params']['nb_iter'] = 100
+    for d in datasets:
+        assert os.path.exists('autoweka/'+d), d
+    dataset = random.choice(in_datasets)
+    params['dataset'] = dataset
+    params['grammar'] = 'pipeline'
+    params['random_state'] = _random_state() 
+    return params
+
+# OUT
+def out_pipeline():
+    func = random.choice((out_random_pipeline, out_frozen_rnn_pipeline))
+    return func()
+
+# OUT Random
+def out_random_pipeline():
+    params = base_pipeline.copy()
+    params['optimizer'] = base_random.copy()
+    params['optimizer']['params']['nb_iter'] = 100
+    params['dataset'] = random.choice(out_datasets)
+    params['grammar'] = 'pipeline'
+    params['random_state'] = _random_state() 
+    return params
+
+# OUT Frozen RNN
+def out_frozen_rnn_pipeline():
+    params = base_pipeline.copy()
+    params['optimizer'] = {
+        'name': 'frozen_rnn',
+        'params': {
+            'model': 'models/model.th',
+            'min_depth': 1,
+            'max_depth': 5,
+            'strict_depth_limit': False,
+            'nb_iter': 100
+        }
+    }
+    params['dataset'] = random.choice(out_datasets)
     params['grammar'] = 'pipeline'
     params['random_state'] = _random_state() 
     return params

@@ -7,6 +7,31 @@ from sklearn.model_selection import train_test_split
 
 from formula import grammar, _eval
 
+autoweka = (
+    "mnist",
+    "germancredit",
+    "winequalitywhite",
+    "mnistrotationbackimagenew",
+    "shuttle",
+    "amazon",
+    "waveform",
+    "convex",
+    "cifar10small",
+    "gisette",
+    "semeion",
+    "zip",
+    "car",
+    "cifar10",
+    "yeast",
+    "dorothea",
+    "abalone",
+    "dexter",
+    "whitewine",
+    "madelon",
+    "secom",
+    "krvskp",
+    "kddcup09appetency",
+)
 
 def get_dataset(name):
     if name == 'digits':
@@ -20,14 +45,8 @@ def get_dataset(name):
         X, y = data[:, 0:-1], data[:, -1]
         y = np.int32(y)
         return _split(X, y)
-    elif name == 'whitewine':
-        X, y = _loadarff('autoweka/winequalitywhite/train.arff')
-        return _split(X, y)
-    elif name == 'cifar10small':
-        X, y = _loadarff('autoweka/cifar10small/train.arff')
-        return _split(X, y)
-    elif name == 'amazon':
-        X, y = _loadarff('autoweka/amazon/train.arff')
+    elif name in autoweka:
+        X, y = _loadarff('autoweka/{}/train.arff'.format(name))
         return _split(X, y)
     elif name == "iris":
         dataset = datasets.load_iris()

@@ -7,12 +7,11 @@ from grammaropt.types import Int
 rules = r"""
     S = (T "+" S) / (T "*" S) / (T "/" S) / T
     T = (po S pc) / ("sin" po S pc) / ("cos" po S pc) / "x" / int
+    int =  "1" / "2" / "3" / "4" / "5" / "6" / "7" / "8" / "9"
     po = "("
     pc = ")"
 """
-
-types = {'int': Int(1, 10)}
-grammar = build_grammar(rules, types=types)
+grammar = build_grammar(rules)
 rules = extract_rules_from_grammar(grammar)
 
 def score(code, data, thresh=0.1):

@@ -66,6 +66,15 @@ def _generate_rules(d=classifier_config_dict, discrete=False):
     clf = list(set(names) - set(preprocessors))
     clf = sorted(clf)
     rules = OrderedDict()
+    
+    def add_type(v, t):
+        if discrete:
+            for val in v:
+                rules[val_to_str(val)] = '"{}"'.format(val)
+                rules[ks] = " / ".join(sorted(map(val_to_str, v), reverse=True))
+        else:
+            rules[ks] = t
+
     for e in preprocessors + clf:
         comps = ['"{}"'.format(e), "op"]
         d[e] = _ordered(d[e])
@@ -82,45 +91,20 @@ def _generate_rules(d=classifier_config_dict, discrete=False):
                 if v == [True, False] or v == [True] or v == [False]:
                     rules[ks] = "bool"
                 elif type(v[0]) == int:
-                    if discrete:
-                        for val in v:
-                            rules[val_to_str(val)] = '"{}"'.format(val)
-                        rules[ks] = " / ".join(map(val_to_str, v))
-                    else:
-                        rules[ks] = "int"
+                    add_type(v, "int")
                 elif type(v[0]) == float:
-                    if discrete:
-                        for val in v:
-                            rules[val_to_str(val)] = '"{}"'.format(val)
-                        rules[ks] = " / ".join(map(val_to_str, v))
-                    else:
-                        rules[ks] = "float"
+                    add_type(v, "float")    
                 elif type(v[0]) == str:
                     rules[ks] = " / ".join('"\\"{}\\""'.format(val) for val in v)
                 else:
                     raise ValueError(k, v)
             elif type(v) == range:
-                if discrete:
-                    for val in v:
-                        rules[val_to_str(val)] = '"{}"'.format(val)
-                    rules[ks] = " / ".join(map(val_to_str, v))
-                else:
-                    rules[ks] = "int"
+                add_type(v, "int")
             elif type(v) == np.ndarray:
                 if 'int' in str(v.dtype):
-                    if discrete:
-                        for val in v:
-                            rules[val_to_str(val)] = '"{}"'.format(val)
-                        rules[ks] = " / ".join(map(val_to_str, v))
-                    else:
-                        rules[ks] = "int"     
+                    add_type(v, "int")    
                 elif 'float' in str(v.dtype):
-                    if discrete:
-                        for val in v:
-                            rules[val_to_str(val)] = '"{}"'.format(val)
-                        rules[ks] = " / ".join(map(val_to_str, v))
-                    else:
-                        rules[ks] = "float"
+                    add_type(v, "float")
                 else:
                     raise ValueError(k, v)
             elif v == None:
@@ -158,7 +142,7 @@ def score(code, data, scoring=None, cv=5):
         log.error('')
         return 0.
     else:
-        print(score)
+        #print(score)
         return float(score)
 
 
@@ -168,7 +152,6 @@ def _build_estimator(code):
 
 discrete = True
 rules, types = _generate_rules(discrete=discrete)
-print(rules)
 if discrete:
     grammar = build_grammar(rules)
 else:
