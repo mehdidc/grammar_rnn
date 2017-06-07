@@ -65,16 +65,13 @@ base_rnn = {
 }
 
 datasets = (
-    #"dexter",
     #"germancredit",
-    #"dorothea",
     "yeast",
     "amazon",
     #"secom",
     "semeion",
     #"car",
     #"madelon",
-    #"krvskp",
     #"abalone",
     "winequalitywhite",
     "waveform",
@@ -223,6 +220,14 @@ def test_pipeline_rnn():
     params = base_pipeline.copy()
     params['optimizer'] = base_rnn
     return params
+
+
+def test_pipeline_random_2():
+    params = base_pipeline.copy()
+    params['optimizer'] = base_random
+    params['dataset'] = 'krvskp'
+    return params
+
 
 def _random_state():
     return np.random.randint(0, 1000000000)
