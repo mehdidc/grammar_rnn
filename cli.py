@@ -434,9 +434,9 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_d
         strict_depth_limit=strict_depth_limit
     )
     db = load_db()
-    jobs = db.jobs_with(jobset=jobset)
+    jobs = db.jobs_with(jobset=jobset, optimizer='random')
     jobs = list(jobs)
-    jobs += list(db.jobs_with(jobset='out_pipeline', optimizer='random'))
+    jobs = [j for j in jobs if j['optimizer'] != 'frozen_rnn']
     if exclude_dataset:
         print(len(jobs))
         jobs = [j for j in jobs if j['dataset'] != exclude_dataset]
@@ -503,6 +503,24 @@ def _build_dataset_from_jobs(jobs):
         y.append(float(np.mean(scores)))
     return X, y
 
+def clean():
+    #out_pipeline -> pipeline
+    db = load_db()
+
+    #jobs = db.jobs_with(jobset='out_pipeline')
+    #for j in jobs:
+    #    db.job_update(j['summary'], {'jobset': 'pipeline'})
+
+    #jobs = db.jobs_with(jobset='random_pipeline')
+    #for j in jobs:
+    #    db.job_update(j['summary'], {'jobset': 'pipeline'})
+    
+    #jobs = db.jobs_with(jobset='rnn_pipeline')
+    #for j in jobs:
+    #    db.job_update(j['summary'], {'jobset': 'pipeline'})
+
+
+
 
 if __name__ == '__main__':
-    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit])
+    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit, clean])

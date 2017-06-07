@@ -64,11 +64,7 @@ base_rnn = {
     }
 }
 
-
-# in datasets was meant to represent the set of datasets
-# where we fit an RNN in order to use the RNN in the
-# out datasets
-in_datasets = (
+datasets = (
     #"dexter",
     #"germancredit",
     #"dorothea",
@@ -82,13 +78,11 @@ in_datasets = (
     "abalone",
     "winequalitywhite",
     "waveform",
-)
-out_datasets = (
     "convex",
 )
 
 def pipeline():
-    func = random.choice((rnn_pipeline, random_pipeline))
+    func = random.choice((rnn_pipeline, random_pipeline, rnn_frozen_pipeline))
     return func()
 
 def rnn_pipeline():
@@ -114,7 +108,7 @@ def rnn_pipeline():
             'init_hh_std': 0.08
         }
     }
-    dataset = random.choice(in_datasets)
+    dataset = random.choice(datasets)
     params['dataset'] = dataset
     params['grammar'] = 'pipeline'
     params['score'] = base_pipeline['score']
@@ -126,41 +120,37 @@ def random_pipeline():
     params = base_pipeline.copy()
     params['optimizer'] = base_random.copy()
     params['optimizer']['params']['nb_iter'] = 100
-    dataset = random.choice(in_datasets)
+    dataset = random.choice(datasets)
     params['dataset'] = dataset
     params['grammar'] = 'pipeline'
     params['random_state'] = _random_state() 
     return params
 
-# OUT
-def out_pipeline():
-    func = random.choice((out_random_pipeline, out_frozen_rnn_pipeline))
-    return func()
 
-# OUT Random
-def out_random_pipeline():
+def frozen_rnn_pipeline():
     params = base_pipeline.copy()
-    params['optimizer'] = base_random.copy()
-    params['optimizer']['params']['nb_iter'] = 100
-    params['dataset'] = random.choice(out_datasets)
-    params['grammar'] = 'pipeline'
-    params['random_state'] = _random_state() 
-    return params
-
-# OUT Frozen RNN
-def out_frozen_rnn_pipeline():
-    params = base_pipeline.copy()
+    dataset = random.choice(datasets)
+    # each dataset has its own model, it is trained on
+    # on the rest of datasets, that is, models/amazon/model.th
+    # is trained on all (code, score) from random_pipeline/rnn_pipeline with
+    # dataset != amazon
+    # this is to implement meta-learning
+    model = 'models/{}/model.th'.format(dataset)
+    # note that before I was using the dataset convex
+    # as a special "out" dataset, and the model was in models/model.th
+    # but I created a folder models/convex with the model inside to be consistent with
+    # the rest
     params['optimizer'] = {
         'name': 'frozen_rnn',
         'params': {
-            'model': 'models/model.th',
+            'model': model,
             'min_depth': 1,
             'max_depth': 5,
             'strict_depth_limit': False,
             'nb_iter': 100
         }
     }
-    params['dataset'] = random.choice(out_datasets)
+    params['dataset'] = dataset
     params['grammar'] = 'pipeline'
     params['random_state'] = _random_state() 
     return params
