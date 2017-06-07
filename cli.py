@@ -361,6 +361,36 @@ def learning_curve_plot(*, jobset=None, dataset=None, out='out.png'):
     plt.savefig(out)
     plt.close(fig)
 
+def rank_plot(*, jobset=None, dataset=None, out='out.png'):
+    db = load_db()
+    kw = {}
+    if jobset:
+        kw['jobset'] = jobset
+    if dataset:
+        kw['dataset'] = dataset
+    jobs = db.jobs_with(**kw)
+    rows = []
+    for j in jobs:
+        max_score = 0.
+        scores = (j['stats']['scores'])
+        for it, score in enumerate(scores):
+            max_score = max(score, max_score)
+            rows.append({'score': max_score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary']})
+    df = pd.DataFrame(rows)
+    rows = []
+    for it, group in df.groupby('iter'):
+        d = df.groupby('optimizer').mean().reset_index()
+        opts = d['optimizer'].values
+        ranks = ((-d['score']).argsort() + 1).values
+        for opt, rank in zip(opts, ranks):
+            rows.append({'iter': it, 'optimizer': opt, 'rank': rank})
+    df = pd.DataFrame(rows)
+    fig = plt.figure()
+    _plot_learning_curve(df, time='iter', score='rank')
+    plt.legend()
+    plt.savefig(out)
+    plt.close(fig)
+
 def time_to_reach_plot(jobset=None, dataset=None, out='out.png'):
     values = np.linspace(0.5, 0.8, 10)
     #values = np.linspace(0, 0.6, 10)
@@ -371,9 +401,6 @@ def time_to_reach_plot(jobset=None, dataset=None, out='out.png'):
     if dataset:
         kw['dataset'] = dataset
     jobs = db.jobs_with(**kw)
-
-
-    jobs = db.jobs_with(jobset=jobset)
     rows = []
     for j in jobs:
         scores = (j['stats']['scores'])
@@ -390,6 +417,27 @@ def time_to_reach_plot(jobset=None, dataset=None, out='out.png'):
     plt.close(fig)
 
 
+def stats(*, jobset=None, dataset=None):
+    db = load_db()
+    kw = {}
+    if jobset:
+        kw['jobset'] = jobset
+    if dataset:
+        kw['dataset'] = dataset
+    jobs = db.jobs_with(**kw)
+    rows = []
+    for j in jobs:
+        max_score = 0.
+        scores = (j['stats']['scores'])
+        for it, score in enumerate(scores):
+            max_score = max(score, max_score)
+            rows.append({'score': max_score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary']})
+    df = pd.DataFrame(rows)
+    df = df.groupby(['optimizer', 'id']).max().reset_index()
+    df = df.groupby('optimizer').agg(('mean', 'std'), axis=1)
+    print(df)
+
+
 def _plot_learning_curve(df, time='iter', score='score'):
     for opt in ('rnn', 'random', 'frozen_rnn'):
         color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'orange'}[opt]
@@ -402,9 +450,9 @@ def _plot_learning_curve(df, time='iter', score='score'):
         plt.plot(d[time], mu, label=opt, color=color)
         #plt.fill_between(d[time], mu - std, mu + std, alpha=0.2, color=color, linewidth=0)
 
+ 
 
-def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_dataset=None, cuda=False):
-    nb_epochs = 8 
+def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_dataset=None, cuda=False, resample=False, normalize_loss=False, nb_epochs=8):
     mod = grammars[grammar]
     grammar = mod.grammar
     rules = mod.rules
@@ -464,7 +512,8 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_d
     np.random.shuffle(indices)
     X = X[indices]
     Y = Y[indices]
-    #X, Y = _resample(X, Y, nb=4)
+    if resample:
+        X, Y = _resample(X, Y, nb=4)
     losses = []
     t0 = time.time()
     print(X.shape)
@@ -478,8 +527,9 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_d
             dwl = RnnDeterministicWalker.from_str(grammar, rnn, x)
             model.zero_grad()
             dwl.walk()
-            #loss = float(y) * dwl.compute_loss() / len(dwl.decisions)
             loss = float(y) * dwl.compute_loss()
+            if normalize_loss:
+                loss /=  len(dwl.decisions)
             loss.backward()
             #nn.utils.clip_grad_norm(model.parameters(), 2)
             optim.step()
@@ -535,11 +585,16 @@ def clean():
 def plots():
     for dataset in datasets:
         print('{}...'.format(dataset))
+        
         out = 'plots/learning_curve/{}.png'.format(dataset)
         learning_curve_plot(jobset='pipeline', dataset=dataset, out=out)
+
         out = 'plots/time_to_reach/{}.png'.format(dataset)
         time_to_reach_plot(jobset='pipeline', dataset=dataset, out=out)
 
+        out = 'plots/rank/{}.png'.format(dataset)
+        rank_plot(jobset='pipeline', dataset=dataset, out=out)
+
 
 if __name__ == '__main__':
-    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit, clean, plots])
+    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit, clean, plots, rank_plot, stats])

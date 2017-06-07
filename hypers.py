@@ -68,7 +68,7 @@ datasets = (
     "germancredit",
     "yeast",
     "amazon",
-    "secom",
+    #"secom",
     "semeion",
     "car",
     "madelon",
