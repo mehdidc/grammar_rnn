@@ -64,14 +64,16 @@ base_rnn = {
     }
 }
 
-
+# goal : find good hypers to re-use (and fix) in the RNN
+# for a new formula
 def rnn_hypers_formula():
     params = base_formula.copy()
     params['optimizer'] = base_rnn.copy()
     params = _rnn_hypers(params)
     return params
 
-
+# goal : find good hypers to re-use (and fix) in the RNN
+# for a new formula
 def rnn_hypers_pipeline():
     params = base_pipeline.copy()
     params['optimizer'] = base_rnn.copy()
@@ -99,9 +101,11 @@ def _rnn_hypers(params):
     params['random_state'] = _random_state() 
     return params
 
-
+# in datasets was meant to represent the set of datasets
+# where we fit an RNN in order to use the RNN in the
+# out datasets
 in_datasets = (
-    "dexter",
+    #"dexter",
     #"germancredit",
     #"dorothea",
     "yeast",
@@ -109,14 +113,14 @@ in_datasets = (
     "secom",
     "semeion",
     #"car",
-    "madelon",
+    #"madelon",
     #"krvskp",
     "abalone",
     "winequalitywhite",
     "waveform",
 )
 out_datasets = (
-    "gisette",
+    "convex",
 )
 
 
@@ -128,11 +132,30 @@ def pipeline():
 
 # IN RNN
 def rnn_pipeline():
-    db = load_db()
-    job = db.get_job_by_summary('??????????????')
-    params = job['content']
-    params['optimizer']['params']['nb_iter'] = 1000
-    params['dataset'] = 'semeion'
+    params = base_pipeline.copy()
+    params['optimizer'] = {
+        'name': 'rnn',
+        'params':{
+            'min_depth': 1,
+            'max_depth': 5,
+            'strict_depth_limit': False,
+            'nb_iter': 100,
+            'emb_size': 128,
+            'hidden_size': 32,
+            'nb_layers': 2,
+            'algo': {
+                'name': 'adam',
+                'params':{
+                    'lr': 1e-3
+                }
+            },
+            'gamma': 0.9,
+            'init_ih_std': 0.08,
+            'init_hh_std': 0.08
+        }
+    }
+    dataset = random.choice(in_datasets)
+    params['dataset'] = dataset
     params['grammar'] = 'pipeline'
     params['score'] = base_pipeline['score']
     params['random_state'] = _random_state()

@@ -157,6 +157,7 @@ def _optim_rnn_from_params(params):
     vocab_size = len(rules)
     emb_size = opt['emb_size']
     hidden_size = opt['hidden_size']
+    nb_layers = opt['nb_layers']
     nb_features = 2
     algo = opt['algo']
     gamma = opt['gamma']
@@ -367,9 +368,15 @@ def plot(job_summary):
     plt.savefig('out.png')
 
 
-def learning_curve_plot(jobset='pipeline'):
+def learning_curve_plot(*, jobset=None, dataset=None):
     db = load_db()
-    jobs = db.jobs_with(jobset=jobset)
+    kw = {}
+    if jobset:
+        kw['jobset'] = jobset
+    if dataset:
+        kw['dataset'] = dataset
+    jobs = db.jobs_with(**kw)
+
     rows = []
     for j in jobs:
         max_score = 0.
@@ -387,7 +394,7 @@ def learning_curve_plot(jobset='pipeline'):
 
 
 def time_to_reach_plot(jobset='pipeline'):
-    values = np.linspace(0.6, 0.7, 10)
+    values = np.linspace(0.5, 0.8, 10)
     #values = np.linspace(0, 0.6, 10)
     db = load_db()
     jobs = db.jobs_with(jobset=jobset)
@@ -406,9 +413,11 @@ def time_to_reach_plot(jobset='pipeline'):
 
 
 def _plot_learning_curve(df, time='iter', score='score'):
-    for opt in ('rnn', 'random'):
-        color = {'rnn': 'blue', 'random': 'green'}[opt]
+    for opt in ('rnn', 'random', 'frozen_rnn'):
+        color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'blue'}[opt]
         d = df[df['optimizer'] == opt]
+        if len(d) == 0:
+            continue
         d = d.groupby(time).agg(['mean', 'std']).reset_index()
         d = d.sort_values(by=time)
         mu, std = d[score]['mean'], d[score]['std']
@@ -416,8 +425,8 @@ def _plot_learning_curve(df, time='iter', score='score'):
         plt.fill_between(d[time], mu - std, mu + std, alpha=0.2, color=color, linewidth=0)
 
 
-def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', dataset='digits', cuda=False):
-    nb_epochs = 1000
+def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_dataset=None, cuda=False):
+    nb_epochs = 8 
     mod = grammars[grammar]
     grammar = mod.grammar
     rules = mod.rules
@@ -427,7 +436,7 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', dataset='
     strict_depth_limit = False
     lr = 1e-4
     
-    hidden_size = 512
+    hidden_size = 128
     emb_size = 128
     num_layers = 2
     nb_features = 2
@@ -436,7 +445,6 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', dataset='
     
     out_filename = os.path.join(out_folder, 'model.th')
     
-    data = get_dataset(dataset)
     model = RnnModel(
         vocab_size=len(rules),
         hidden_size=hidden_size,
@@ -463,6 +471,11 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', dataset='
     db = load_db()
     jobs = db.jobs_with(jobset=jobset)
     jobs = list(jobs)
+    jobs += list(db.jobs_with(jobset='out_pipeline', optimizer='random'))
+    if exclude_dataset:
+        print(len(jobs))
+        jobs = [j for j in jobs if j['dataset'] != exclude_dataset]
+        print(len(jobs))
     X, Y = _build_dataset_from_jobs(jobs)
     avg_loss = 0.
     nb_updates = 0
@@ -473,40 +486,45 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', dataset='
     np.random.shuffle(indices)
     X = X[indices]
     Y = Y[indices]
-    print(len(X), len(Y), np.max(Y))
+    #X, Y = _resample(X, Y, nb=4)
     losses = []
+    t0 = time.time()
+    print(X.shape)
     for epoch in range(nb_epochs):
         t0 = time.time()
         indices = np.arange(len(X))
         np.random.shuffle(indices)
         X = X[indices]
         Y = Y[indices]
-        for x, y in zip(X, Y):
-            if y == 0:
-                continue
+        for i, (x, y) in enumerate(zip(X, Y)):
             dwl = RnnDeterministicWalker.from_str(grammar, rnn, x)
             model.zero_grad()
             dwl.walk()
+            #loss = float(y) * dwl.compute_loss() / len(dwl.decisions)
             loss = float(y) * dwl.compute_loss()
             loss.backward()
-            nn.utils.clip_grad_norm(model.parameters(), 2)
+            #nn.utils.clip_grad_norm(model.parameters(), 2)
             optim.step()
-            avg_loss = gamma * avg_loss + loss.data[0] * (1 - gamma)
+            avg_loss = gamma * avg_loss + (loss.data[0]) * (1 - gamma)
             losses.append(loss.data[0])
             if nb_updates % 100 == 0:
-                print('Epoch {:04d}/{:04d} Avg loss : {:.3f}'.format(epoch + 1, nb_epochs, avg_loss))
+                dt = time.time() - t0
+                t0 = time.time()
+                print('Epoch {:04d}/{:04d} Example {:04d}/{:04d} Avg loss : {:.3f} time {:.3f}'.format(epoch + 1, nb_epochs, i + 1, len(X), avg_loss, dt))
                 pd.Series(losses).to_csv(os.path.join(out_folder, 'stats.csv'))
-                """
-                for _ in range(10):
-                    rnnwl.walk()
-                    expr = as_str(rnnwl.terminals)
-                    print('score : {:.4f}, gen : {}'.format(mod.score(expr, data), expr))
-                """
             nb_updates += 1
         delta_t = time.time() - t0
         print('Time elapsed in epoch {:04f} : {:.3f}s'.format(epoch + 1, delta_t))
         torch.save(model, out_filename)
-     
+    
+
+def _resample(X, Y, nb=1):
+    p = np.array(Y)
+    p /= p.sum()
+    X = np.random.choice(X, size=nb * len(X), p=p, replace=True)
+    Y = np.ones(len(X))
+    return X, Y
+
 
 def _build_dataset_from_jobs(jobs):
     code_to_score = defaultdict(list)
@@ -521,68 +539,5 @@ def _build_dataset_from_jobs(jobs):
     return X, y
 
 
-def test():
-    mod = pipeline
-    dataset = 'digits'
-    gamma = 0.9
-    batch_size = 10
-    rules = mod.rules
-    
-    tok_to_id = {r: i for i, r in enumerate(rules)}
-    model = RnnModel(
-        vocab_size=len(tok_to_id), 
-        nb_features=2, 
-        hidden_size=32,
-        num_layers=2)
-    model.apply(_weights_init)
-    rnn = RnnAdapter(
-        model, 
-        tok_to_id, 
-        random_state=42)
-    rnnwl = RnnWalker(
-        grammar=mod.grammar, 
-        rnn=rnn,
-        min_depth=1, 
-        max_depth=5, 
-        strict_depth_limit=False,
-    )
-    optim = torch.optim.Adam(model.parameters(), lr=1e-3)
-    X = []
-    y = []
-    R_avg = 0.
-    R_max = 0.
-    avg_loss = 0.
-    data = get_dataset(dataset)
-    rng = np.random
-    R_list = []
-    code_list = []
-    eps = 0.8
-    alpha_avg = 0.
-    for it in range(1000):
-        rnnwl.walk()
-        code = as_str(rnnwl.terminals)
-        R = mod.score(code, data)
-        R_max = max(R, R_max)
-        R_avg = R_avg * gamma + R * (1 - gamma)
-        code_list.append(code)
-        R_list.append(R)
-        print(code) 
-        wl = RnnDeterministicWalker.from_str(mod.grammar, rnn, code)
-        wl.walk()
-        model.zero_grad()
-        alpha = (R - R_avg)
-        alpha_avg = alpha_avg * 0.9 + alpha * 0.1
-        loss = alpha * wl.compute_loss()
-        loss.backward()
-        optim.step()
-        avg_loss = avg_loss * 0.9 + loss.data[0] * 0.1 
-        print('R:{:.3f} alpha_avg:{:.3f} eps:{:.3f} code:{}'.format(R, alpha_avg, eps, code))
-        optim.step()
-    print(max(R_list))
-    fig = plt.figure()
-    plt.plot(R_list)
-    plt.savefig('out.png')
-
-
 if __name__ == '__main__':
-    run([optim, plot, best_hypers, test, learning_curve_plot, time_to_reach_plot, fit])
+    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit])

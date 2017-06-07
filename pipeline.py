@@ -135,6 +135,7 @@ def score(code, data, scoring=None, cv=5):
         #clf.fit(X, y)
         clf.fit(X_train, y_train)
         score = (clf.predict(X_test) == y_test).mean()
+        print(score)
         #scores = cross_val_score(clf, X, y, scoring=scoring, cv=StratifiedKFold(n_splits=cv, shuffle=True))
     except Exception as ex:
         log.error('Error on code : {}'.format(code))
