@@ -358,10 +358,18 @@ def learning_curve_plot(*, jobset=None, dataset=None):
     plt.savefig('out.png')
 
 
-def time_to_reach_plot(jobset='pipeline'):
+def time_to_reach_plot(jobset=None, dataset=None):
     values = np.linspace(0.5, 0.8, 10)
     #values = np.linspace(0, 0.6, 10)
     db = load_db()
+    kw = {}
+    if jobset:
+        kw['jobset'] = jobset
+    if dataset:
+        kw['dataset'] = dataset
+    jobs = db.jobs_with(**kw)
+
+
     jobs = db.jobs_with(jobset=jobset)
     rows = []
     for j in jobs:
@@ -379,7 +387,7 @@ def time_to_reach_plot(jobset='pipeline'):
 
 def _plot_learning_curve(df, time='iter', score='score'):
     for opt in ('rnn', 'random', 'frozen_rnn'):
-        color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'blue'}[opt]
+        color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'orange'}[opt]
         d = df[df['optimizer'] == opt]
         if len(d) == 0:
             continue
@@ -387,7 +395,7 @@ def _plot_learning_curve(df, time='iter', score='score'):
         d = d.sort_values(by=time)
         mu, std = d[score]['mean'], d[score]['std']
         plt.plot(d[time], mu, label=opt, color=color)
-        plt.fill_between(d[time], mu - std, mu + std, alpha=0.2, color=color, linewidth=0)
+        #plt.fill_between(d[time], mu - std, mu + std, alpha=0.2, color=color, linewidth=0)
 
 
 def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_dataset=None, cuda=False):

@@ -70,19 +70,20 @@ datasets = (
     #"dorothea",
     "yeast",
     "amazon",
-    "secom",
+    #"secom",
     "semeion",
     #"car",
     #"madelon",
     #"krvskp",
-    "abalone",
+    #"abalone",
     "winequalitywhite",
     "waveform",
     "convex",
 )
 
 def pipeline():
-    func = random.choice((rnn_pipeline, random_pipeline, rnn_frozen_pipeline))
+    #func = random.choice((rnn_pipeline, random_pipeline, rnn_frozen_pipeline))
+    func = frozen_rnn_pipeline
     return func()
 
 def rnn_pipeline():
