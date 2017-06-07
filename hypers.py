@@ -65,22 +65,23 @@ base_rnn = {
 }
 
 datasets = (
-    #"germancredit",
+    "germancredit",
     "yeast",
     "amazon",
-    #"secom",
+    "secom",
     "semeion",
-    #"car",
-    #"madelon",
-    #"abalone",
+    "car",
+    "madelon",
+    "abalone",
     "winequalitywhite",
     "waveform",
     "convex",
 )
 
 def pipeline():
-    #func = random.choice((rnn_pipeline, random_pipeline, rnn_frozen_pipeline))
-    func = frozen_rnn_pipeline
+    #func = random.choice((rnn_pipeline, random_pipeline, frozen_rnn_pipeline))
+    func = random.choice((random_pipeline, frozen_rnn_pipeline))
+    #func = frozen_rnn_pipeline
     return func()
 
 def rnn_pipeline():

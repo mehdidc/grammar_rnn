@@ -52,7 +52,9 @@ import random
 from data import get_dataset
 import pipeline
 import formula
+
 from hypers import generate_job
+from hypers import datasets
 from hypers import _auc
 from hypers import _monotonicity
 from hypers import _corr
@@ -333,7 +335,7 @@ def plot(job_summary):
     plt.savefig('out.png')
 
 
-def learning_curve_plot(*, jobset=None, dataset=None):
+def learning_curve_plot(*, jobset=None, dataset=None, out='out.png'):
     db = load_db()
     kw = {}
     if jobset:
@@ -353,12 +355,13 @@ def learning_curve_plot(*, jobset=None, dataset=None):
             rows.append({'score': max_score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary']})
     # learning curve with average performance
     df = pd.DataFrame(rows)
+    fig = plt.figure()
     _plot_learning_curve(df, time='iter', score='score')
     plt.legend()
-    plt.savefig('out.png')
+    plt.savefig(out)
+    plt.close(fig)
 
-
-def time_to_reach_plot(jobset=None, dataset=None):
+def time_to_reach_plot(jobset=None, dataset=None, out='out.png'):
     values = np.linspace(0.5, 0.8, 10)
     #values = np.linspace(0, 0.6, 10)
     db = load_db()
@@ -380,9 +383,11 @@ def time_to_reach_plot(jobset=None, dataset=None):
                 ttr = len(scores)
             rows.append({'optimizer': j['optimizer'], 'ttr': ttr, 'value': value})
     df = pd.DataFrame(rows)
+    fig = plt.figure()
     _plot_learning_curve(df, time='value', score='ttr')
     plt.legend()
-    plt.savefig('out.png')
+    plt.savefig(out)
+    plt.close(fig)
 
 
 def _plot_learning_curve(df, time='iter', score='score'):
@@ -527,8 +532,14 @@ def clean():
     #for j in jobs:
     #    db.job_update(j['summary'], {'jobset': 'pipeline'})
 
-
+def plots():
+    for dataset in datasets:
+        print('{}...'.format(dataset))
+        out = 'plots/learning_curve/{}.png'.format(dataset)
+        learning_curve_plot(jobset='pipeline', dataset=dataset, out=out)
+        out = 'plots/time_to_reach/{}.png'.format(dataset)
+        time_to_reach_plot(jobset='pipeline', dataset=dataset, out=out)
 
 
 if __name__ == '__main__':
-    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit, clean])
+    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit, clean, plots])
