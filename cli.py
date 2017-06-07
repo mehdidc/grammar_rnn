@@ -246,42 +246,6 @@ def _rnn_optimize(func, walker, optim, nb_iter=10, gamma=0.9):
     return X, y
 
 
-def _rnn_optimize_greedy_epsilon(func, walker, optim, nb_iter=10, gamma=0.9, decay=float('inf')):
-    wl = walker
-    model = wl.rnn.model
-    randomwl = RandomWalker(
-        grammar=wl.grammar, 
-        min_depth=wl.min_depth, 
-        max_depth=wl.max_depth, 
-        strict_depth_limit=wl.strict_depth_limit,
-    )
-    rng = wl.rnn.rng
-    randomwl.rng = rng
-    X = []
-    y = []
-    R_avg = 0.
-    for it in range(nb_iter):
-        eps = 1. - 1. / (1. + decay * it)
-        if rng.uniform() <= eps:
-            wl.walk()
-            code = as_str(wl.terminals)
-        else:
-            randomwl.walk()
-            code = as_str(randomwl.terminals)
-        R = func(code)
-        R_avg = R_avg * gamma + R * (1 - gamma)
-
-        model.zero_grad()
-        dwl = RnnDeterministicWalker.from_str(wl.grammar, wl.rnn, code)
-        dwl.walk()
-        loss = (R - R_avg) * dwl.compute_loss()
-        loss.backward()
-        optim.step()
-        X.append(code)
-        y.append(R)
-    return X, y
-
-
 def _optim_frozen_rnn_from_params(params):
     dataset = params['dataset']
     random_state = params['random_state']
@@ -356,6 +320,7 @@ def best_hypers(jobset='rnn_hypers_pipeline'):
 
     df = pd.DataFrame(rows)
     print(df.groupby('optimizer').agg(['mean', 'std']))
+
 
 def plot(job_summary):
     db = load_db()

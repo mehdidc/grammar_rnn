@@ -64,42 +64,6 @@ base_rnn = {
     }
 }
 
-# goal : find good hypers to re-use (and fix) in the RNN
-# for a new formula
-def rnn_hypers_formula():
-    params = base_formula.copy()
-    params['optimizer'] = base_rnn.copy()
-    params = _rnn_hypers(params)
-    return params
-
-# goal : find good hypers to re-use (and fix) in the RNN
-# for a new formula
-def rnn_hypers_pipeline():
-    params = base_pipeline.copy()
-    params['optimizer'] = base_rnn.copy()
-    params['dataset'] = 'redwine'
-    params = _rnn_hypers(params)
-    return params
-
-
-def _rnn_hypers(params):
-    rng = np.random
-    rnn = params['optimizer']
-    opt = rnn['params']
-    opt['nb_iter'] = 1000
-    opt['hidden_size'] = rng.randint(5, 256)
-    opt['algo'] = {
-        'name': rng.choice(('sgd', 'adam')),
-        'params': {
-            'lr': 10 ** rng.uniform(-5, -1),
-        }
-    }
-    opt['init_ih_std'] = 10 ** rng.uniform(-5, -1)
-    opt['init_hh_std'] = 10 ** rng.uniform(-5, -1)
-    opt['gamma'] = np.random.uniform(0., 1.)
-    params['optimizer'] = rnn
-    params['random_state'] = _random_state() 
-    return params
 
 # in datasets was meant to represent the set of datasets
 # where we fit an RNN in order to use the RNN in the
@@ -123,14 +87,10 @@ out_datasets = (
     "convex",
 )
 
-
-# IN
 def pipeline():
     func = random.choice((rnn_pipeline, random_pipeline))
     return func()
 
-
-# IN RNN
 def rnn_pipeline():
     params = base_pipeline.copy()
     params['optimizer'] = {
@@ -162,13 +122,10 @@ def rnn_pipeline():
     return params
 
 
-# IN Random
 def random_pipeline():
     params = base_pipeline.copy()
     params['optimizer'] = base_random.copy()
     params['optimizer']['params']['nb_iter'] = 100
-    for d in datasets:
-        assert os.path.exists('autoweka/'+d), d
     dataset = random.choice(in_datasets)
     params['dataset'] = dataset
     params['grammar'] = 'pipeline'
@@ -209,32 +166,6 @@ def out_frozen_rnn_pipeline():
     return params
 
 
-def formula():
-    func = random.choice((rnn_formula, random_formula))
-    return func()
-
-
-def rnn_formula():
-    db = load_db()
-    job = db.get_job_by_summary('??????????????????????')
-    params = job['content']
-    params['optimizer']['params']['nb_iter'] = 1000
-    params['dataset'] = 'x*sin(x)+cos(x)/x'
-    params['grammar'] = 'formula'
-    params['score'] = base_formula['score']
-    params['random_state'] = _random_state()
-    return params
-
-
-def random_formula():
-    params = base_formula.copy()
-    params['optimizer'] = base_random.copy()
-    params['optimizer']['params']['nb_iter'] = 1000
-    params['dataset'] = 'x*sin(x)+cos(x)/x'
-    params['random_state'] = _random_state() 
-    return params
- 
-
 def _monotonicity(scores):
     scores = np.array(scores)
     avg = pd.ewma(pd.Series(scores[0:-1]), span=1./0.1-1)
@@ -262,6 +193,25 @@ def _time_to_reach(scores, val):
     else:
         return better.argmax()
 
+
+def _rnn_hypers(params):
+    rng = np.random
+    rnn = params['optimizer']
+    opt = rnn['params']
+    opt['nb_iter'] = 1000
+    opt['hidden_size'] = rng.randint(5, 256)
+    opt['algo'] = {
+        'name': rng.choice(('sgd', 'adam')),
+        'params': {
+            'lr': 10 ** rng.uniform(-5, -1),
+        }
+    }
+    opt['init_ih_std'] = 10 ** rng.uniform(-5, -1)
+    opt['init_hh_std'] = 10 ** rng.uniform(-5, -1)
+    opt['gamma'] = np.random.uniform(0., 1.)
+    params['optimizer'] = rnn
+    params['random_state'] = _random_state() 
+    return params
 
 def test_formula_random():
     params = base_formula.copy()
