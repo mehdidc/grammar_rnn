@@ -166,7 +166,7 @@ def finetune_rnn_pipeline():
             'max_depth': 5,
             'strict_depth_limit': False,
             'nb_iter': 100,
-            'gamma': 0.9,
+            'gamma': 1.0,
             'algo': {
                 'name': 'adam',
                 'params':{

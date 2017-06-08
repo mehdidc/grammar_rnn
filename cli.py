@@ -499,8 +499,8 @@ def stats(*, jobset=None, dataset=None):
 
 
 def _plot_learning_curve(df, time='iter', score='score'):
-    for opt in ('random', 'frozen_rnn'):
-        color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'orange'}[opt]
+    for opt in ('random', 'frozen_rnn', 'finetune_rnn'):
+        color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'orange', 'finetune_rnn': 'purple'}[opt]
         d = df[df['optimizer'] == opt]
         if len(d) == 0:
             continue
