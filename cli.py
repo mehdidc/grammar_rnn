@@ -420,6 +420,22 @@ def learning_curve_plot(*, jobset=None, dataset=None, out='out.png'):
     plt.close(fig)
 
 def rank_plot(*, jobset=None, dataset=None, out='out.png'):
+    if dataset is None:
+        df_list = []
+        for d in datasets:
+            df = _rank_df(jobset=jobset, dataset=d)
+            df_list.append(df)
+        df = pd.concat(df_list, axis=0)
+        df = df.groupby(('iter', 'optimizer')).mean().reset_index()
+    else:
+        df = _rank_df(jobset=jobset, dataset=dataset)
+    fig = plt.figure()
+    _plot_learning_curve(df, time='iter', score='rank')
+    plt.legend()
+    plt.savefig(out)
+    plt.close(fig)
+
+def _rank_df(jobset=None, dataset=None):
     db = load_db()
     kw = {}
     if jobset:
@@ -429,25 +445,21 @@ def rank_plot(*, jobset=None, dataset=None, out='out.png'):
     jobs = db.jobs_with(**kw)
     rows = []
     for j in jobs:
-        max_score = 0.
         scores = (j['stats']['scores'])
+        max_score = 0.
         for it, score in enumerate(scores):
             max_score = max(score, max_score)
             rows.append({'score': max_score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary']})
     df = pd.DataFrame(rows)
     rows = []
     for it, group in df.groupby('iter'):
-        d = df.groupby('optimizer').mean().reset_index()
+        d = group.groupby('optimizer').mean().reset_index()
         opts = d['optimizer'].values
         ranks = ((-d['score']).argsort() + 1).values
         for opt, rank in zip(opts, ranks):
             rows.append({'iter': it, 'optimizer': opt, 'rank': rank})
     df = pd.DataFrame(rows)
-    fig = plt.figure()
-    _plot_learning_curve(df, time='iter', score='rank')
-    plt.legend()
-    plt.savefig(out)
-    plt.close(fig)
+    return df
 
 def time_to_reach_plot(jobset=None, dataset=None, out='out.png'):
     values = np.linspace(0.5, 0.8, 10)
@@ -499,20 +511,33 @@ def stats(*, jobset=None, dataset=None):
 
 
 def _plot_learning_curve(df, time='iter', score='score'):
-    for opt in ('random', 'frozen_rnn', 'finetune_rnn'):
+    for opt in ('random', 'frozen_rnn', 'finetune_rnn', 'rnn'):
         color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'orange', 'finetune_rnn': 'purple'}[opt]
         d = df[df['optimizer'] == opt]
         if len(d) == 0:
             continue
-        d = d.groupby(time).agg(['mean', 'std']).reset_index()
+        #d = d.groupby(time).agg(['mean', 'std']).reset_index()
+        d = d.groupby(time).agg(['mean',  'std']).reset_index()
         d = d.sort_values(by=time)
         mu, std = d[score]['mean'], d[score]['std']
         plt.plot(d[time], mu, label=opt, color=color)
         #plt.fill_between(d[time], mu - std, mu + std, alpha=0.2, color=color, linewidth=0)
 
- 
+def _bs_mean(x):
+    random_state = hash(tuple(x.tolist())) % 4294967295
+    rng = np.random.RandomState(random_state)
+    bs = rng.randint(0, len(x), size=10000)
+    return x.values[bs].mean()
+_bs_mean.__name__ = 'mean'
 
-def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_dataset=None, cuda=False, resample=False, normalize_loss=False, nb_epochs=8):
+def _bs_std(x):
+    random_state = hash(tuple(x.tolist())) % 4294967295
+    rng = np.random.RandomState(random_state)
+    bs = rng.randint(0, len(x), size=10000)
+    return x.values[bs].std()
+_bs_std.__name__ = 'std'
+
+def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_dataset=None, include_dataset=None, cuda=False, resample=False, normalize_loss=False, nb_epochs=8):
     mod = grammars[grammar]
     grammar = mod.grammar
     rules = mod.rules
@@ -557,11 +582,17 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_d
     db = load_db()
     jobs = db.jobs_with(jobset=jobset, optimizer='random')
     jobs = list(jobs)
-    jobs = [j for j in jobs if j['optimizer'] != 'frozen_rnn']
-    if exclude_dataset:
+    
+    assert (include_dataset and not exclude_dataset) or (not include_dataset and exclude_dataset)
+    if include_dataset:
+        print(len(jobs))
+        jobs = [j for j in jobs if j['dataset'] == include_dataset]
+        print(len(jobs))
+    elif exclude_dataset:
         print(len(jobs))
         jobs = [j for j in jobs if j['dataset'] != exclude_dataset]
         print(len(jobs))
+    assert len(jobs)
     X, Y = _build_dataset_from_jobs(jobs)
     avg_loss = 0.
     nb_updates = 0
@@ -655,6 +686,8 @@ def plots():
         out = 'plots/rank/{}.png'.format(dataset)
         rank_plot(jobset='pipeline', dataset=dataset, out=out)
 
+        out = 'plots/ranks.png'
+        rank_plot(jobset='pipeline', out=out)
 
 if __name__ == '__main__':
     run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit, clean, plots, rank_plot, stats])

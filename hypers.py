@@ -80,7 +80,8 @@ datasets = (
 def pipeline():
     #func = random.choice((rnn_pipeline, random_pipeline, frozen_rnn_pipeline))
     #func = random.choice((random_pipeline, frozen_rnn_pipeline))
-    func = finetune_rnn_pipeline
+    #func = finetune_rnn_pipeline
+    func = random_pipeline
     return func()
 
 def rnn_pipeline():
@@ -125,6 +126,10 @@ def random_pipeline():
     return params
 
 
+def random_pipeline_for_prior():
+    return random_pipeline()
+
+
 def frozen_rnn_pipeline():
     params = base_pipeline.copy()
     dataset = random.choice(datasets)
@@ -166,7 +171,7 @@ def finetune_rnn_pipeline():
             'max_depth': 5,
             'strict_depth_limit': False,
             'nb_iter': 100,
-            'gamma': 1.0,
+            'gamma': 0.9,
             'algo': {
                 'name': 'adam',
                 'params':{
