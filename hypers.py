@@ -80,8 +80,8 @@ datasets = (
 def pipeline():
     #func = random.choice((rnn_pipeline, random_pipeline, frozen_rnn_pipeline))
     #func = random.choice((random_pipeline, frozen_rnn_pipeline))
-    #func = finetune_rnn_pipeline
-    func = random_pipeline
+    func = finetune_rnn_pipeline
+    #func = random_pipeline
     return func()
 
 def rnn_pipeline():

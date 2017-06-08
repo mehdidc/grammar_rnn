@@ -501,13 +501,23 @@ def stats(*, jobset=None, dataset=None):
         scores = (j['stats']['scores'])
         for it, score in enumerate(scores):
             max_score = max(score, max_score)
-            rows.append({'score': score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary']})
+            rows.append({'score': score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary'], 'dataset': j['dataset']})
+
     df = pd.DataFrame(rows)
+    print('Total nb of (code, score) tuples : {}'.format(len(df)))
+    print('List of Optimizers : ', df['optimizer'].unique())
+    print('List of datasets : ', df['dataset'].unique())
+    for opt, opt_grp in df.groupby('optimizer'):
+        print(opt)
+        for ds, ds_grp in opt_grp.groupby('dataset'):
+            mu = ds_grp.groupby('iter').count()['id'].iloc[0]
+            print('total eval : {:05d}, avg eval per iter : {:05d} Dataset : {} '.format(len(ds_grp), mu, ds))
     max_score = df['score'].max()
-    print(df[df['score'] == max_score])
     df = df.groupby(['optimizer', 'id']).max().reset_index()
     df = df.groupby('optimizer').agg(('mean', 'std'), axis=1)
     print(df)
+
+
 
 
 def _plot_learning_curve(df, time='iter', score='score'):
@@ -520,7 +530,9 @@ def _plot_learning_curve(df, time='iter', score='score'):
         d = d.groupby(time).agg(['mean',  'std']).reset_index()
         d = d.sort_values(by=time)
         mu, std = d[score]['mean'], d[score]['std']
-        plt.plot(d[time], mu, label=opt, color=color)
+        v = mu - std if not np.any(np.isnan(std)) else mu
+        plt.plot(d[time], v, label=opt, color=color)
+        #plt.errorbar(x=d[time], y=mu, yerr=std, color=color, label=opt)
         #plt.fill_between(d[time], mu - std, mu + std, alpha=0.2, color=color, linewidth=0)
 
 def _bs_mean(x):
@@ -555,7 +567,7 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_d
     hh_std = 0.08
     
     out_filename = os.path.join(out_folder, 'model.th')
-    
+    assert not os.path.exists(out_filename)
     model = RnnModel(
         vocab_size=len(rules),
         hidden_size=hidden_size,
