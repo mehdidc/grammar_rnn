@@ -4,7 +4,7 @@ import random
 import pandas as pd
 from sklearn.metrics import auc
 import numpy as np
-from lightjob.cli import load_db
+
 
 def generate_job(jobset):
     func = globals()[jobset]
@@ -80,7 +80,8 @@ datasets = (
 def pipeline():
     #func = random.choice((rnn_pipeline, random_pipeline, frozen_rnn_pipeline))
     #func = random.choice((random_pipeline, frozen_rnn_pipeline))
-    func = finetune_rnn_pipeline
+    #func = finetune_rnn_pipeline
+    func = prior_rnn_pipeline
     #func = random_pipeline
     return func()
 
@@ -129,6 +130,26 @@ def random_pipeline():
 def random_pipeline_for_prior():
     return random_pipeline()
 
+def prior_rnn_pipeline():
+    params = base_pipeline.copy()
+    dataset = random.choice(datasets)
+    
+    #model = 'models_prior/{}/model.th'.format(dataset) #old
+    model = 'mod/prior_rnn/{}/model.th'.format(dataset) #new
+    params['optimizer'] = {
+        'name': 'prior_rnn',
+        'params': {
+            'model': model,
+            'min_depth': 1,
+            'max_depth': 5,
+            'strict_depth_limit': False,
+            'nb_iter': 100
+        }
+    }
+    params['dataset'] = dataset
+    params['grammar'] = 'pipeline'
+    params['random_state'] = _random_state() 
+    return params
 
 def frozen_rnn_pipeline():
     params = base_pipeline.copy()
@@ -138,7 +159,10 @@ def frozen_rnn_pipeline():
     # is trained on all (code, score) from random_pipeline/rnn_pipeline with
     # dataset != amazon
     # this is to implement meta-learning
-    model = 'models/{}/model.th'.format(dataset)
+    
+    #model = 'models/{}/model.th'.format(dataset)  #old
+    model = 'mod/meta_rnn/{}/model.th'.format(dataset) #new
+ 
     # note that before I was using the dataset convex
     # as a special "out" dataset, and the model was in models/model.th
     # but I created a folder models/convex with the model inside to be consistent with
@@ -162,7 +186,10 @@ def frozen_rnn_pipeline():
 def finetune_rnn_pipeline():
     params = base_pipeline.copy()
     dataset = random.choice(datasets)
-    model = 'models/{}/model.th'.format(dataset)
+    
+    #model = 'models/{}/model.th'.format(dataset) # old
+    model = 'mod/meta_rnn/{}/model.th'.format(dataset) #new
+ 
     params['optimizer'] = {
         'name': 'finetune_rnn',
         'params': {

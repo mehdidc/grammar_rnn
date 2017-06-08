@@ -32,7 +32,7 @@ autoweka = (
     "cifar10",
 )
 
-def get_dataset(name):
+def get_dataset(name, which='train'):
     if name == 'digits':
         dataset = datasets.load_digits()
         X = dataset['data']
@@ -47,10 +47,17 @@ def get_dataset(name):
     elif name in autoweka:
         X, y = _loadarff('autoweka/{}/train.arff'.format(name))
         X_train, X_test, y_train, y_test = _split(X, y)
+        X_train_orig = X_train
         X_train = _preprocess(X_train, X_train=X_train, name=name)
         X_test = _preprocess(X_test, X_train=X_train, name=name)
-        print(X_train.shape)
-        return X_train, X_test, y_train, y_test
+        if which =='train':
+            return X_train, X_test, y_train, y_test
+        elif which == 'test':
+            X, y = _loadarff('autoweka/{}/test.arff'.format(name))
+            X = _preprocess(X, X_train=X_train_orig, name=name)
+            return X, y
+        else:
+            raise ValueError('wrong which')
     elif name == "iris":
         dataset = datasets.load_iris()
         X = dataset['data']

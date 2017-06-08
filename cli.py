@@ -4,6 +4,7 @@ import json
 import math
 from functools import partial
 from functools import wraps
+from itertools import chain
 import warnings
 import logging
 from datetime import datetime
@@ -72,13 +73,15 @@ grammars = {
 }
 
 
-def optim(jobset):
+def optim(jobset, *, db=None):
     
     optimizers = {
         'rnn': _optim_rnn_from_params, 
         'random': _optim_random_from_params,
         'frozen_rnn': _optim_frozen_rnn_from_params,
+        'prior_rnn': _optim_frozen_rnn_from_params,
         'finetune_rnn': _optim_finetune_rnn_from_params,
+        'prior_finetune_rnn' : _optim_finetune_rnn_from_params
     }
 
     params = generate_job(jobset=jobset)
@@ -87,6 +90,12 @@ def optim(jobset):
     optimizer = params['optimizer']['name']
     grammar = params['grammar']
     random_state = params['random_state']
+    db_name = db 
+    db = load_db(db_name)
+
+    if db_name == '.new':
+        _assert_job(jobset, params, db=db)
+
     np.random.seed(random_state)
 
     _optim = optimizers[optimizer]
@@ -94,7 +103,6 @@ def optim(jobset):
     stats = _optim(params)
     end_time = datetime.now()
     
-    db = load_db()
     db.safe_add_job(
         params, 
         stats=stats, 
@@ -104,6 +112,15 @@ def optim(jobset):
         optimizer=optimizer,
         start=start_time,
         end=end_time)
+
+def _assert_job(jobset, params, db):
+    limit_per_optimizer = 10
+    if jobset in ('pipeline', 'random_pipeline_for_prior'):
+        jobs = db.jobs_with(jobset=jobset, optimizer=params['optimizer']['name'], dataset=params['dataset'])
+        jobs = list(jobs)
+        print(len(jobs))
+        assert len(jobs) < limit_per_optimizer
+        print('ok')
 
 
 def _optim_random_from_params(params):
@@ -393,8 +410,8 @@ def plot(job_summary):
     plt.savefig('out.png')
 
 
-def learning_curve_plot(*, jobset=None, dataset=None, out='out.png'):
-    db = load_db()
+def learning_curve_plot(*, jobset=None, dataset=None, out='out.png', db=None):
+    db = load_db(db)
     kw = {}
     if jobset:
         kw['jobset'] = jobset
@@ -419,11 +436,11 @@ def learning_curve_plot(*, jobset=None, dataset=None, out='out.png'):
     plt.savefig(out)
     plt.close(fig)
 
-def rank_plot(*, jobset=None, dataset=None, out='out.png'):
+def rank_plot(*, jobset=None, dataset=None, out='out.png', db=None):
     if dataset is None:
         df_list = []
         for d in datasets:
-            df = _rank_df(jobset=jobset, dataset=d)
+            df = _rank_df(jobset=jobset, dataset=d, db=db)
             df_list.append(df)
         df = pd.concat(df_list, axis=0)
         df = df.groupby(('iter', 'optimizer')).mean().reset_index()
@@ -435,8 +452,8 @@ def rank_plot(*, jobset=None, dataset=None, out='out.png'):
     plt.savefig(out)
     plt.close(fig)
 
-def _rank_df(jobset=None, dataset=None):
-    db = load_db()
+def _rank_df(jobset=None, dataset=None, db=None):
+    db = load_db(db)
     kw = {}
     if jobset:
         kw['jobset'] = jobset
@@ -461,10 +478,10 @@ def _rank_df(jobset=None, dataset=None):
     df = pd.DataFrame(rows)
     return df
 
-def time_to_reach_plot(jobset=None, dataset=None, out='out.png'):
+def time_to_reach_plot(jobset=None, dataset=None, out='out.png', db=None):
     values = np.linspace(0.5, 0.8, 10)
     #values = np.linspace(0, 0.6, 10)
-    db = load_db()
+    db = load_db(db)
     kw = {}
     if jobset:
         kw['jobset'] = jobset
@@ -487,8 +504,8 @@ def time_to_reach_plot(jobset=None, dataset=None, out='out.png'):
     plt.close(fig)
 
 
-def stats(*, jobset=None, dataset=None):
-    db = load_db()
+def stats(*, jobset=None, dataset=None, db=None):
+    db = load_db(db)
     kw = {}
     if jobset:
         kw['jobset'] = jobset
@@ -499,10 +516,12 @@ def stats(*, jobset=None, dataset=None):
     for j in jobs:
         max_score = 0.
         scores = (j['stats']['scores'])
+        codes = j['stats']['codes']
         for it, score in enumerate(scores):
             max_score = max(score, max_score)
-            rows.append({'score': score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary'], 'dataset': j['dataset']})
-
+            code = codes[it]
+            rows.append({'score': score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary'], 'dataset': j['dataset'], 'code': code})
+    
     df = pd.DataFrame(rows)
     print('Total nb of (code, score) tuples : {}'.format(len(df)))
     print('List of Optimizers : ', df['optimizer'].unique())
@@ -513,6 +532,7 @@ def stats(*, jobset=None, dataset=None):
             mu = ds_grp.groupby('iter').count()['id'].iloc[0]
             print('total eval : {:05d}, avg eval per iter : {:05d} Dataset : {} '.format(len(ds_grp), mu, ds))
     max_score = df['score'].max()
+    print(df[df['score'] == max_score].values)
     df = df.groupby(['optimizer', 'id']).max().reset_index()
     df = df.groupby('optimizer').agg(('mean', 'std'), axis=1)
     print(df)
@@ -521,8 +541,8 @@ def stats(*, jobset=None, dataset=None):
 
 
 def _plot_learning_curve(df, time='iter', score='score'):
-    for opt in ('random', 'frozen_rnn', 'finetune_rnn', 'rnn'):
-        color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'orange', 'finetune_rnn': 'purple'}[opt]
+    for opt in ('random', 'frozen_rnn', 'finetune_rnn', 'rnn', 'prior_rnn'):
+        color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'orange', 'finetune_rnn': 'purple', 'prior_rnn': 'red'}[opt]
         d = df[df['optimizer'] == opt]
         if len(d) == 0:
             continue
@@ -549,7 +569,7 @@ def _bs_std(x):
     return x.values[bs].std()
 _bs_std.__name__ = 'std'
 
-def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_dataset=None, include_dataset=None, cuda=False, resample=False, normalize_loss=False, nb_epochs=8):
+def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_dataset=None, include_dataset=None, cuda=False, resample=False, normalize_loss=False, nb_epochs=8, db=None):
     mod = grammars[grammar]
     grammar = mod.grammar
     rules = mod.rules
@@ -591,7 +611,7 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_d
         max_depth=max_depth, 
         strict_depth_limit=strict_depth_limit
     )
-    db = load_db()
+    db = load_db(db)
     jobs = db.jobs_with(jobset=jobset, optimizer='random')
     jobs = list(jobs)
     
@@ -606,6 +626,7 @@ def fit(*, jobset='pipeline', grammar='pipeline', out_folder='models', exclude_d
         print(len(jobs))
     assert len(jobs)
     X, Y = _build_dataset_from_jobs(jobs)
+    np.savez(os.path.join(out_folder, 'src.npz'), X=X, Y=Y)
     avg_loss = 0.
     nb_updates = 0
 
@@ -685,21 +706,59 @@ def clean():
     #for j in jobs:
     #    db.job_update(j['summary'], {'jobset': 'pipeline'})
 
-def plots():
+def plots(*, db=None):
     for dataset in datasets:
         print('{}...'.format(dataset))
         
         out = 'plots/learning_curve/{}.png'.format(dataset)
-        learning_curve_plot(jobset='pipeline', dataset=dataset, out=out)
+        learning_curve_plot(jobset='pipeline', dataset=dataset, out=out, db=db)
 
         out = 'plots/time_to_reach/{}.png'.format(dataset)
-        time_to_reach_plot(jobset='pipeline', dataset=dataset, out=out)
+        time_to_reach_plot(jobset='pipeline', dataset=dataset, out=out, db=db)
 
         out = 'plots/rank/{}.png'.format(dataset)
-        rank_plot(jobset='pipeline', dataset=dataset, out=out)
+        rank_plot(jobset='pipeline', dataset=dataset, out=out, db=db)
 
         out = 'plots/ranks.png'
-        rank_plot(jobset='pipeline', out=out)
+        rank_plot(jobset='pipeline', out=out, db=db)
+
+
+def test_perf(*, code='make_pipeline(sklearn.linear_model.LogisticRegression())', dataset='car'):
+    X_train, X_valid, y_train, y_valid = get_dataset(dataset, which='train')
+    X = np.concatenate((X_train, X_valid), axis=0)
+    y = np.concatenate((y_train, y_valid), axis=0)
+    clf = eval(code)
+    clf.fit(X, y)
+    X_test, y_test = get_dataset(dataset, which='test')
+    print((clf.predict(X_test) == y_test).mean())
+
+def new():
+    db = load_db()
+    jobs = db.jobs_with(jobset='pipeline', optimizer='random')
+    jobs = list(jobs)
+    random.shuffle(jobs)
+    rnd = []
+    rnd_prior = []
+    N = 10
+    D = 10
+    for ds in datasets:
+        ds_only = [j for j in jobs if j['dataset'] == ds]
+        rnd.extend(ds_only[0:N])
+        rnd_prior.extend(ds_only[N:2*N])
+    assert len(rnd) == N * D, len(rnd)
+    assert len(rnd_prior) == N * D, len(rnd_prior)
+    db  = load_db('.new')
+    for j in rnd:
+        meta = j.copy()
+        del meta['content']
+        db.safe_add_job(j['content'], **meta)
+
+    for j in rnd_prior:
+        meta = j.copy()
+        del meta['content']
+        meta['jobset'] = 'random_pipeline_for_prior'
+        db.safe_add_job(j['content'], **meta)
+
 
 if __name__ == '__main__':
-    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit, clean, plots, rank_plot, stats])
+    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit, clean, plots, rank_plot, stats, new, test_perf])
