@@ -77,7 +77,8 @@ def optim(jobset):
     optimizers = {
         'rnn': _optim_rnn_from_params, 
         'random': _optim_random_from_params,
-        'frozen_rnn': _optim_frozen_rnn_from_params
+        'frozen_rnn': _optim_frozen_rnn_from_params,
+        'finetune_rnn': _optim_finetune_rnn_from_params,
     }
 
     params = generate_job(jobset=jobset)
@@ -296,6 +297,63 @@ def _optim_frozen_rnn_from_params(params):
     return stats
 
 
+def _optim_finetune_rnn_from_params(params):
+    dataset = params['dataset']
+    random_state = params['random_state']
+
+    torch.manual_seed(random_state) # for LSTM initialization
+
+    opt = params['optimizer']['params']
+    min_depth = opt['min_depth']
+    max_depth = opt['max_depth']
+    strict_depth_limit = opt['strict_depth_limit']
+    nb_iter = opt['nb_iter']
+    filename = opt['model']
+    algo = opt['algo']
+    gamma = opt['gamma']
+
+    mod = grammars[params['grammar']]
+    grammar = mod.grammar
+    rules = mod.rules
+    tok_to_id = _get_tok_to_id(rules)
+
+    data = get_dataset(dataset)
+    score_func = partial(mod.score, data=data, **params['score'])
+
+    model = torch.load(
+        filename, 
+        map_location=lambda storage, loc: storage #  load on CPU
+    )
+    model.use_cuda = False
+
+    algos = {'sgd': torch.optim.SGD, 'adam': torch.optim.Adam}
+    algo_cls = algos[algo['name']]
+    algo_params = algo['params']
+    optim = algo_cls(model.parameters(), **algo_params)
+    rnn = RnnAdapter(
+        model, 
+        tok_to_id,
+        random_state=random_state
+    )
+    wl = RnnWalker(
+        grammar=grammar, 
+        rnn=rnn,
+        min_depth=min_depth, 
+        max_depth=max_depth, 
+        strict_depth_limit=strict_depth_limit,
+    )
+    codes, scores = rnn_optimize(
+        score_func, 
+        wl,
+        optim,
+        nb_iter=nb_iter,
+        gamma=gamma
+    )
+    stats = {'codes': codes, 'scores': scores}
+    return stats
+
+
+
 def best_hypers(jobset='rnn_hypers_pipeline'):
     rng = np.random
     db = load_db()
@@ -431,15 +489,17 @@ def stats(*, jobset=None, dataset=None):
         scores = (j['stats']['scores'])
         for it, score in enumerate(scores):
             max_score = max(score, max_score)
-            rows.append({'score': max_score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary']})
+            rows.append({'score': score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary']})
     df = pd.DataFrame(rows)
+    max_score = df['score'].max()
+    print(df[df['score'] == max_score])
     df = df.groupby(['optimizer', 'id']).max().reset_index()
     df = df.groupby('optimizer').agg(('mean', 'std'), axis=1)
     print(df)
 
 
 def _plot_learning_curve(df, time='iter', score='score'):
-    for opt in ('rnn', 'random', 'frozen_rnn'):
+    for opt in ('random', 'frozen_rnn'):
         color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'orange'}[opt]
         d = df[df['optimizer'] == opt]
         if len(d) == 0:
