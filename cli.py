@@ -775,6 +775,7 @@ def test_perf(*, code='make_pipeline(sklearn.linear_model.LogisticRegression())'
     y = np.concatenate((y_train, y_valid), axis=0)
     #X = X_train
     #y = y_train
+    np.random.seed(42)
     clf = eval(code)
     clf.fit(X, y)
     X_test, y_test = get_dataset(dataset, which='test')
@@ -791,7 +792,7 @@ def test_plot():
     df = df[ (df['optimizer'] == 'prior_rnn') | (df['optimizer']=='random')| (df['optimizer']=='frozen_rnn')]
     rename = {'frozen_rnn': 'meta-rnn', 'prior_rnn': 'prior rnn', 'random': 'random'}
     df['optimizer'] = df['optimizer'].apply(lambda name:rename[name])
-    palette = {'meta-rnn': 'orange', 'prior rnn': 'red', 'random': 'green'}
+    colo = {'meta-rnn': 'orange', 'prior rnn': 'red', 'random': 'green'}
     fig = plt.figure(figsize=(12, 8))
     sns.barplot(x='dataset', y='test', hue='optimizer', data=df, palette=palette)
     plt.xlabel('dataset')
