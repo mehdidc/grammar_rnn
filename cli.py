@@ -552,11 +552,9 @@ def test(*, jobset=None, dataset=None, db=None):
     jobs = db.jobs_with(**kw)
     rows = []
     for j in jobs:
-        max_score = 0.
         scores = (j['stats']['scores'])
         codes = j['stats']['codes']
         for it, score in enumerate(scores):
-            max_score = max(score, max_score)
             code = codes[it]
             rows.append({'score': score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary'], 'dataset': j['dataset'], 'code': code})
     df = pd.DataFrame(rows)
@@ -569,7 +567,7 @@ def test(*, jobset=None, dataset=None, db=None):
             l = opt_group.sort_values(by='score', ascending=False).iloc[0]
             score = l['score']
             code = l['code']
-            acc = test_perf(code=code, dataset=ds)
+            acc = _test_perf(code=code, dataset=ds)
             out.append({'test': acc, 'valid': score, 'dataset': ds, 'code': code, 'optimizer': opt})
             print(acc, score, opt)
     df = pd.DataFrame(out)
@@ -769,7 +767,7 @@ def plots(*, db=None):
         rank_plot(jobset='pipeline', out=out, db=db)
 
 
-def test_perf(*, code='make_pipeline(sklearn.linear_model.LogisticRegression())', dataset='car'):
+def _test_perf(*, code='make_pipeline(sklearn.linear_model.LogisticRegression())', dataset='car'):
     X_train, X_valid, y_train, y_valid = get_dataset(dataset, which='train')
     X = np.concatenate((X_train, X_valid), axis=0)
     y = np.concatenate((y_train, y_valid), axis=0)
@@ -792,7 +790,7 @@ def test_plot():
     df = df[ (df['optimizer'] == 'prior_rnn') | (df['optimizer']=='random')| (df['optimizer']=='frozen_rnn')]
     rename = {'frozen_rnn': 'meta-rnn', 'prior_rnn': 'prior rnn', 'random': 'random'}
     df['optimizer'] = df['optimizer'].apply(lambda name:rename[name])
-    colo = {'meta-rnn': 'orange', 'prior rnn': 'red', 'random': 'green'}
+    palette = {'meta-rnn': 'orange', 'prior rnn': 'red', 'random': 'green'}
     fig = plt.figure(figsize=(12, 8))
     sns.barplot(x='dataset', y='test', hue='optimizer', data=df, palette=palette)
     plt.xlabel('dataset')
@@ -835,4 +833,4 @@ def info():
         print('{} & {} & {} & {} & {} & {} \\\\ \\hline'.format(ds, X_train.shape[0], X_valid.shape[0], X_test.shape[0], X_train.shape[1], len(set(y_train))))
 
 if __name__ == '__main__':
-    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit, clean, plots, rank_plot, stats, new, test_perf, info, test, test_plot])
+    run([optim, plot, best_hypers, learning_curve_plot, time_to_reach_plot, fit, clean, plots, rank_plot, stats, new, info, test, test_plot])
