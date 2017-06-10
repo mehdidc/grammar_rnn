@@ -93,8 +93,7 @@ def optim(jobset, *, db=None):
     db_name = db 
     db = load_db(db_name)
 
-    if db_name == '.new':
-        _assert_job(jobset, params, db=db)
+    _assert_job(jobset, params, db=db)
 
     np.random.seed(random_state)
 
@@ -119,7 +118,7 @@ def _assert_job(jobset, params, db):
         jobs = db.jobs_with(jobset=jobset, optimizer=params['optimizer']['name'], dataset=params['dataset'])
         jobs = list(jobs)
         print(len(jobs))
-        assert len(jobs) < limit_per_optimizer
+        assert len(jobs) < limit_per_optimizer, (params['optimizer']['name'], params['dataset'], len(jobs))
         print('ok')
 
 
@@ -783,12 +782,8 @@ def _test_perf(*, code='make_pipeline(sklearn.linear_model.LogisticRegression())
 def test_plot():
     import seaborn as sns
     df = pd.read_csv('test.csv')
-    #o = ['finetune_prior_rnn', 'finetune_rnn', 'meta-rnn', 'prior rnn', 'random'] * (len(df)// 5)
-    #df['optimizer'] = o
-    #c = ['a', 'a', 'orange', 'red', 'green'] *(len(df)//5)
-    #df['color'] = c
     df = df[ (df['optimizer'] == 'prior_rnn') | (df['optimizer']=='random')| (df['optimizer']=='frozen_rnn')]
-    rename = {'frozen_rnn': 'meta-rnn', 'prior_rnn': 'prior rnn', 'random': 'random'}
+    rename = {'frozen_rnn': 'meta-rnn', 'prior_rnn': 'prior-rnn', 'random': 'random'}
     df['optimizer'] = df['optimizer'].apply(lambda name:rename[name])
     palette = {'meta-rnn': 'orange', 'prior rnn': 'red', 'random': 'green'}
     fig = plt.figure(figsize=(12, 8))
