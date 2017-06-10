@@ -5,6 +5,7 @@ import math
 from functools import partial
 from functools import wraps
 from itertools import chain
+from itertools import product
 import warnings
 import logging
 from datetime import datetime
@@ -75,14 +76,6 @@ grammars = {
 
 def optim(jobset, *, db=None):
     
-    optimizers = {
-        'rnn': _optim_rnn_from_params, 
-        'random': _optim_random_from_params,
-        'frozen_rnn': _optim_frozen_rnn_from_params,
-        'prior_rnn': _optim_frozen_rnn_from_params,
-        'finetune_rnn': _optim_finetune_rnn_from_params,
-        'finetune_prior_rnn' : _optim_finetune_rnn_from_params
-    }
 
     params = generate_job(jobset=jobset)
     print(json.dumps(params, indent=2))
@@ -101,7 +94,9 @@ def optim(jobset, *, db=None):
     start_time = datetime.now()
     stats = _optim(params)
     end_time = datetime.now()
-    
+
+    _assert_job(jobset, params, db=db)
+
     db.safe_add_job(
         params, 
         stats=stats, 
@@ -367,6 +362,16 @@ def _optim_finetune_rnn_from_params(params):
     )
     stats = {'codes': codes, 'scores': scores}
     return stats
+
+
+optimizers = {
+    'rnn': _optim_rnn_from_params, 
+    'random': _optim_random_from_params,
+    'frozen_rnn': _optim_frozen_rnn_from_params,
+    'prior_rnn': _optim_frozen_rnn_from_params,
+    'finetune_rnn': _optim_finetune_rnn_from_params,
+    'finetune_prior_rnn' : _optim_finetune_rnn_from_params
+}
 
 
 
@@ -748,6 +753,15 @@ def clean():
     #jobs = db.jobs_with(jobset='rnn_pipeline')
     #for j in jobs:
     #    db.job_update(j['summary'], {'jobset': 'pipeline'})
+    for ds, opt in product(datasets, optimizers.keys()):
+        jobs = db.jobs_with(dataset=ds, optimizer=opt, jobset='pipeline')
+        jobs = list(jobs)
+        if len(jobs) <= 10:
+            continue
+        jobs = sorted(jobs, key=lambda j:pd.to_datetime(j['end']))
+        print(len(jobs[10:]), len(jobs[0:10]), len(jobs))
+        for j in jobs[10:]:
+            db.delete({'summary': j['summary']})
 
 def plots(*, db=None):
     for dataset in datasets:
@@ -782,10 +796,25 @@ def _test_perf(*, code='make_pipeline(sklearn.linear_model.LogisticRegression())
 def test_plot():
     import seaborn as sns
     df = pd.read_csv('test.csv')
-    df = df[ (df['optimizer'] == 'prior_rnn') | (df['optimizer']=='random')| (df['optimizer']=='frozen_rnn')]
-    rename = {'frozen_rnn': 'meta-rnn', 'prior_rnn': 'prior-rnn', 'random': 'random'}
+    #df = df[ (df['optimizer'] == 'prior_rnn') | (df['optimizer']=='random')| (df['optimizer']=='frozen_rnn')]
+    rename = {
+        'frozen_rnn': 'meta-rnn', 
+        'prior_rnn': 'prior-rnn', 
+        'finetune_rnn': 'meta-rnn-finetuned',
+        'finetune_prior_rnn': 'prior-rnn-finetuned',
+        'random': 'random'
+    }
+
     df['optimizer'] = df['optimizer'].apply(lambda name:rename[name])
-    palette = {'meta-rnn': 'orange', 'prior rnn': 'red', 'random': 'green'}
+
+
+    palette = {
+        'meta-rnn': 'orange', 
+        'prior-rnn': 'red', 
+        'random': 'green',
+        'meta-rnn-finetuned': 'black',
+        'prior-rnn-finetuned': 'purple'
+    }
     fig = plt.figure(figsize=(12, 8))
     sns.barplot(x='dataset', y='test', hue='optimizer', data=df, palette=palette)
     plt.xlabel('dataset')
