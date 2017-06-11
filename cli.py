@@ -429,15 +429,16 @@ def learning_curve_plot(*, jobset=None, dataset=None, out='out.png', db=None):
         scores = (j['stats']['scores'])
         for it, score in enumerate(scores):
             max_score = max(score, max_score)
-            #top = sorted(scores[0:it + 1])[::-1][0:20]
-            #top_score = sum(top) / len(top) 
+            top = sorted(scores[0:it + 1])[::-1][0:20]
+            top_score = sum(top) / len(top) 
+            val = max_score
             rows.append({'score': max_score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary']})
     # learning curve with average performance
     df = pd.DataFrame(rows)
     fig = plt.figure()
     _plot_learning_curve(df, time='iter', score='score')
-    plt.legend()
-    plt.ylabel('accuracy')
+    plt.legend(loc='best')
+    plt.ylabel('accuracy(valid)')
     plt.savefig(out)
     plt.close(fig)
 
@@ -453,7 +454,7 @@ def rank_plot(*, jobset=None, dataset=None, out='out.png', db=None):
         df = _rank_df(jobset=jobset, dataset=dataset)
     fig = plt.figure()
     _plot_learning_curve(df, time='iter', score='rank')
-    plt.legend()
+    plt.legend(loc='best')
     plt.ylabel('rank')
     plt.savefig(out)
     plt.close(fig)
@@ -467,7 +468,7 @@ def _rank_df(jobset=None, dataset=None, db=None):
         kw['dataset'] = dataset
     jobs = db.jobs_with(**kw)
     jobs = list(jobs)
-    jobs = [j for j in jobs if j['optimizer'] in ('frozen_rnn', 'random', 'prior_rnn')]
+    #jobs = [j for j in jobs if j['optimizer'] in ('frozen_rnn', 'random', 'prior_rnn')]
     rows = []
     for j in jobs:
         scores = (j['stats']['scores'])
@@ -583,8 +584,8 @@ def _plot_learning_curve(df, time='iter', score='score'):
         'random', 
         'frozen_rnn', 
         'prior_rnn', 
-        #'finetune_prior_rnn', 
-        #'finetune_rnn'
+        'finetune_prior_rnn', 
+        'finetune_rnn'
     )
     for opt in opts:
         color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'orange', 'finetune_rnn': 'purple', 'prior_rnn': 'red', 'finetune_prior_rnn': 'black'}[opt]

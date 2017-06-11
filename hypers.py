@@ -83,7 +83,8 @@ def pipeline():
     #func = finetune_rnn_pipeline
     #func = random.choice((prior_rnn_pipeline, frozen_rnn_pipeline, finetune_rnn_pipeline, finetune_prior_rnn_pipeline))
     #func = random_pipeline
-    func = random.choice((prior_rnn_pipeline, frozen_rnn_pipeline))
+    #func = random.choice((prior_rnn_pipeline, frozen_rnn_pipeline))
+    func = random.choice((finetune_rnn_pipeline, finetune_prior_rnn_pipeline))
     return func()
 
 def rnn_pipeline():
