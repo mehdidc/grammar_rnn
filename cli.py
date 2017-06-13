@@ -23,6 +23,8 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+sns.set_style("white")
+
 
 import sklearn
 import sklearn.kernel_approximation
@@ -414,7 +416,7 @@ def plot(job_summary):
     plt.savefig('out.png')
 
 
-def learning_curve_plot(*, jobset=None, dataset=None, out='out.png', db=None):
+def learning_curve_plot(*, jobset=None, dataset=None, out='out.png', db=None, topk=1, optimizers=None):
     db = load_db(db)
     kw = {}
     if jobset:
@@ -427,39 +429,44 @@ def learning_curve_plot(*, jobset=None, dataset=None, out='out.png', db=None):
     for j in jobs:
         max_score = 0.
         scores = (j['stats']['scores'])
-        for it, score in enumerate(scores):
-            max_score = max(score, max_score)
-            top = sorted(scores[0:it + 1])[::-1][0:20]
+        codes = j['stats']['codes']
+        code_to_score = {code:score for code, score in zip(codes, scores)}
+        for it, score in enumerate(scores[topk-1:]):
+            codes_so_far = list(set(codes[0:it+1]))
+            if len(codes_so_far) < topk:
+                continue
+            codes_so_far = sorted(codes_so_far, key=lambda c:code_to_score[c], reverse=True)
+            codes_so_far = codes_so_far[0:topk]
+            top = [code_to_score[c] for c in codes_so_far]
             top_score = sum(top) / len(top) 
-            val = max_score
-            rows.append({'score': max_score, 'optimizer': j['optimizer'], 'iter': it, 'id': j['summary']})
+            rows.append({'score': top_score, 'optimizer': j['optimizer'], 'iter': it+topk, 'id': j['summary']})
     # learning curve with average performance
     df = pd.DataFrame(rows)
     fig = plt.figure()
-    _plot_learning_curve(df, time='iter', score='score')
-    plt.legend(loc='best')
+    _plot_learning_curve(df, time='iter', score='score', optimizers=optimizers)
+    plt.legend(loc='bottom left')
     plt.ylabel('accuracy(valid)')
     plt.savefig(out)
     plt.close(fig)
 
-def rank_plot(*, jobset=None, dataset=None, out='out.png', db=None):
+def rank_plot(*, jobset=None, dataset=None, out='out.png', db=None, optimizers=None):
     if dataset is None:
         df_list = []
         for d in datasets:
-            df = _rank_df(jobset=jobset, dataset=d, db=db)
+            df = _rank_df(jobset=jobset, dataset=d, db=db, optimizers=optimizers)
             df_list.append(df)
         df = pd.concat(df_list, axis=0)
         df = df.groupby(('iter', 'optimizer')).mean().reset_index()
     else:
         df = _rank_df(jobset=jobset, dataset=dataset)
-    fig = plt.figure()
-    _plot_learning_curve(df, time='iter', score='rank')
-    plt.legend(loc='best')
+    fig = plt.figure(figsize=(10, 5))
+    _plot_learning_curve(df, time='iter', score='rank', optimizers=optimizers)
+    plt.legend(loc='best', bbox_to_anchor=(0.4, 0.7))
     plt.ylabel('rank')
     plt.savefig(out)
     plt.close(fig)
 
-def _rank_df(jobset=None, dataset=None, db=None):
+def _rank_df(jobset=None, dataset=None, db=None, optimizers=None):
     db = load_db(db)
     kw = {}
     if jobset:
@@ -471,6 +478,8 @@ def _rank_df(jobset=None, dataset=None, db=None):
     #jobs = [j for j in jobs if j['optimizer'] in ('frozen_rnn', 'random', 'prior_rnn')]
     rows = []
     for j in jobs:
+        if optimizers and j['optimizer'] not in optimizers:
+            continue
         scores = (j['stats']['scores'])
         max_score = 0.
         for it, score in enumerate(scores):
@@ -579,17 +588,31 @@ def test(*, jobset=None, dataset=None, db=None):
     df.to_csv('test.csv')
 
 
-def _plot_learning_curve(df, time='iter', score='score'):
-    opts = (
-        'random', 
-        'frozen_rnn', 
-        'prior_rnn', 
-        'finetune_prior_rnn', 
-        'finetune_rnn'
-    )
-    for opt in opts:
-        color = {'rnn': 'blue', 'random': 'green', 'frozen_rnn': 'orange', 'finetune_rnn': 'purple', 'prior_rnn': 'red', 'finetune_prior_rnn': 'black'}[opt]
-        label = {'random': 'random', 'frozen_rnn': 'meta-rnn', 'finetune_rnn': 'fine-tuned meta-rnn', 'prior_rnn': 'prior rnn', 'finetune_prior_rnn': 'fine-tuned prior rnn', 'rnn': 'rnn'}
+def _plot_learning_curve(df, time='iter', score='score', optimizers=None):
+    if not optimizers:
+        optimizers = (
+            'random', 
+            'frozen_rnn', 
+            'prior_rnn', 
+            'finetune_prior_rnn', 
+            'finetune_rnn'
+        )
+    for opt in optimizers:
+        color = {
+            'rnn': 'blue', 
+            'random': 'green', 
+            'frozen_rnn': 'orange', 
+            'finetune_rnn': 'purple', 
+            'prior_rnn': 'red', 
+            'finetune_prior_rnn': 'blue'}[opt]
+        rename = {
+            'frozen_rnn': 'meta-rnn', 
+            'prior_rnn': 'prior-rnn', 
+            'finetune_rnn': 'finetuned-meta-rnn',
+            'finetune_prior_rnn': 'finetuned-prior-rnn',
+            'random': 'random'
+        }
+
         d = df[df['optimizer'] == opt]
         if len(d) == 0:
             continue
@@ -598,11 +621,11 @@ def _plot_learning_curve(df, time='iter', score='score'):
         d = d.sort_values(by=time)
         mu, std = d[score]['mean'], d[score]['std']
         #v = mu - std if not np.any(np.isnan(std)) else mu
-        plt.plot(d[time], mu, label=label[opt], color=color)
-        #plt.errorbar(x=d[time], y=mu, yerr=std, color=color, label=opt)
+        plt.plot(d[time], mu, label=rename[opt], color=color)
+        #plt.errorbar(x=d[time], y=mu, yerr=std, color=color, label=rename[opt)
         plt.fill_between(d[time], mu - std, mu + std, alpha=0.1, color=color, linewidth=0)
         plt.xlabel('nb. of evaluations')
-        plt.legend(loc='best')
+
 
 def _bs_mean(x):
     random_state = hash(tuple(x.tolist())) % 4294967295
@@ -765,20 +788,38 @@ def clean():
             db.delete({'summary': j['summary']})
 
 def plots(*, db=None):
+    test_plot(out='plots/test.png')
+    opt = ('prior_rnn', 'frozen_rnn', 'random')
     for dataset in datasets:
         print('{}...'.format(dataset))
         
         out = 'plots/learning_curve/{}.png'.format(dataset)
-        learning_curve_plot(jobset='pipeline', dataset=dataset, out=out, db=db)
+        learning_curve_plot(jobset='pipeline', dataset=dataset, out=out, db=db, optimizers=opt)
+
+        out = 'plots/learning_curve_prior/{}.png'.format(dataset)
+        learning_curve_plot(jobset='pipeline', dataset=dataset, out=out, db=db, optimizers=('prior_rnn', 'finetune_prior_rnn'))
+
+        out = 'plots/learning_curve_meta/{}.png'.format(dataset)
+        learning_curve_plot(jobset='pipeline', dataset=dataset, out=out, db=db, optimizers=('frozen_rnn', 'finetune_rnn'))
+
+        out = 'plots/learning_curve_top20/{}.png'.format(dataset)
+        learning_curve_plot(jobset='pipeline', dataset=dataset, out=out, db=db,  topk=20)
+
+        out = 'plots/learning_curve_top10/{}.png'.format(dataset)
+        learning_curve_plot(jobset='pipeline', dataset=dataset, out=out, db=db,  topk=10)
 
         out = 'plots/time_to_reach/{}.png'.format(dataset)
         time_to_reach_plot(jobset='pipeline', dataset=dataset, out=out, db=db)
 
         out = 'plots/rank/{}.png'.format(dataset)
-        rank_plot(jobset='pipeline', dataset=dataset, out=out, db=db)
+        rank_plot(jobset='pipeline', dataset=dataset, out=out, db=db, optimizers=('prior_rnn', 'frozen_rnn', 'random'))
 
-        out = 'plots/ranks.png'
-        rank_plot(jobset='pipeline', out=out, db=db)
+    out = 'plots/ranks_all.png'
+    rank_plot(jobset='pipeline', out=out, db=db)
+
+    out = 'plots/ranks.png'
+    rank_plot(jobset='pipeline', out=out, db=db, optimizers=opt)
+
 
 
 def _test_perf(*, code='make_pipeline(sklearn.linear_model.LogisticRegression())', dataset='car'):
@@ -794,35 +835,45 @@ def _test_perf(*, code='make_pipeline(sklearn.linear_model.LogisticRegression())
     return ((clf.predict(X_test) == y_test).mean())
 
 
-def test_plot():
+def test_plot(out='test.png'):
     import seaborn as sns
     df = pd.read_csv('test.csv')
     #df = df[ (df['optimizer'] == 'prior_rnn') | (df['optimizer']=='random')| (df['optimizer']=='frozen_rnn')]
     rename = {
         'frozen_rnn': 'meta-rnn', 
         'prior_rnn': 'prior-rnn', 
-        'finetune_rnn': 'meta-rnn-finetuned',
-        'finetune_prior_rnn': 'prior-rnn-finetuned',
+        'finetune_rnn': 'finetuned-meta-rnn',
+        'finetune_prior_rnn': 'finetuned-prior-rnn',
         'random': 'random'
     }
-
     df['optimizer'] = df['optimizer'].apply(lambda name:rename[name])
 
+    for ds, gr_ds in df.groupby('dataset'):
+        best = gr_ds[['optimizer', 'test', 'code']].sort_values(by='test', ascending=False).iloc[0]
+        print('{}#dataset : {}, found by {}'.format(best['code'], ds, best['optimizer']))
+
+
+    for ds, gr_ds in df.groupby('dataset'):
+        print(ds)
+        gr_ds['err'] = 1.0 - gr_ds['test']
+        print(gr_ds[['optimizer', 'test']])
 
     palette = {
         'meta-rnn': 'orange', 
         'prior-rnn': 'red', 
         'random': 'green',
-        'meta-rnn-finetuned': 'black',
-        'prior-rnn-finetuned': 'purple'
+        'finetuned-meta-rnn': 'blue',
+        'finetuned-prior-rnn': 'purple'
     }
+    order = ['meta-rnn', 'finetuned-meta-rnn', 'prior-rnn', 'finetuned-prior-rnn', 'random']
     fig = plt.figure(figsize=(12, 8))
-    sns.barplot(x='dataset', y='test', hue='optimizer', data=df, palette=palette)
+    sns.barplot(x='dataset', y='test', hue='optimizer', data=df, palette=palette, hue_order=order)
     plt.xlabel('dataset')
     plt.ylabel('accuracy(test)')
     plt.legend(loc='best')
-    plt.savefig('test.png')
+    plt.savefig(out)
     plt.close(fig)
+
 
 def new():
     db = load_db()

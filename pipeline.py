@@ -74,7 +74,15 @@ def _generate_rules(d=classifier_config_dict, discrete=False):
                 rules[ks] = " / ".join(sorted(map(val_to_str, v), reverse=True))
         else:
             rules[ks] = t
-
+    print('Transformers & Estimators')
+    """
+    for p, c  in zip(preprocessors, clf + ['']*(len(preprocessors)-len(clf))):
+        p = p.replace('sklearn.', '')
+        c = c.replace('sklearn.', '')
+        p = p.replace('_', '\_')
+        c = c.replace('_', '\_')
+        print('{} & {} \\\\ \\hline'.format(p, c))
+    """
     for e in preprocessors + clf:
         comps = ['"{}"'.format(e), "op"]
         d[e] = _ordered(d[e])
