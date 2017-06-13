@@ -585,7 +585,7 @@ def test(*, jobset=None, dataset=None, db=None):
             out.append({'test': acc, 'valid': score, 'dataset': ds, 'code': code, 'optimizer': opt})
             print(acc, score, opt)
     df = pd.DataFrame(out)
-    df.to_csv('test.csv')
+    df.to_csv('plots/test.csv')
 
 
 def _plot_learning_curve(df, time='iter', score='score', optimizers=None):
@@ -837,7 +837,7 @@ def _test_perf(*, code='make_pipeline(sklearn.linear_model.LogisticRegression())
 
 def test_plot(out='test.png'):
     import seaborn as sns
-    df = pd.read_csv('test.csv')
+    df = pd.read_csv('plots/test.csv')
     #df = df[ (df['optimizer'] == 'prior_rnn') | (df['optimizer']=='random')| (df['optimizer']=='frozen_rnn')]
     rename = {
         'frozen_rnn': 'meta-rnn', 
