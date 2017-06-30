@@ -71,7 +71,6 @@ datasets = (
     "semeion",
     "car",
     "madelon",
-    #"abalone",
     "winequalitywhite",
     "waveform",
     "convex",
@@ -84,7 +83,8 @@ def pipeline():
     #func = random.choice((prior_rnn_pipeline, frozen_rnn_pipeline, finetune_rnn_pipeline, finetune_prior_rnn_pipeline))
     #func = random_pipeline
     #func = random.choice((prior_rnn_pipeline, frozen_rnn_pipeline))
-    func = random.choice((finetune_rnn_pipeline, finetune_prior_rnn_pipeline))
+    #func = random.choice((finetune_rnn_pipeline, finetune_prior_rnn_pipeline))
+    func = random.choice((prior_rnn_pipeline, frozen_rnn_pipeline, finetune_rnn_pipeline, finetune_prior_rnn_pipeline))
     return func()
 
 def rnn_pipeline():
@@ -132,12 +132,11 @@ def random_pipeline():
 def random_pipeline_for_prior():
     return random_pipeline()
 
+
 def prior_rnn_pipeline():
     params = base_pipeline.copy()
     dataset = random.choice(datasets)
-    
-    #model = 'models_prior/{}/model.th'.format(dataset) #old
-    model = 'mod/prior_rnn/{}/model.th'.format(dataset) #new
+    model = 'mod/prior_rnn/{}/model.th'.format(dataset)
     params['optimizer'] = {
         'name': 'prior_rnn',
         'params': {
@@ -153,6 +152,7 @@ def prior_rnn_pipeline():
     params['random_state'] = _random_state() 
     return params
 
+
 def frozen_rnn_pipeline():
     params = base_pipeline.copy()
     dataset = random.choice(datasets)
@@ -162,8 +162,7 @@ def frozen_rnn_pipeline():
     # dataset != amazon
     # this is to implement meta-learning
     
-    #model = 'models/{}/model.th'.format(dataset)  #old
-    model = 'mod/meta_rnn/{}/model.th'.format(dataset) #new
+    model = 'mod/meta_rnn/{}/model.th'.format(dataset)
  
     # note that before I was using the dataset convex
     # as a special "out" dataset, and the model was in models/model.th
@@ -189,8 +188,7 @@ def finetune_rnn_pipeline():
     params = base_pipeline.copy()
     dataset = random.choice(datasets)
     
-    #model = 'models/{}/model.th'.format(dataset) # old
-    model = 'mod/meta_rnn/{}/model.th'.format(dataset) #new
+    model = 'mod/meta_rnn/{}/model.th'.format(dataset)
  
     params['optimizer'] = {
         'name': 'finetune_rnn',
@@ -220,7 +218,7 @@ def finetune_prior_rnn_pipeline():
     params = base_pipeline.copy()
     dataset = random.choice(datasets)
     
-    model = 'mod/prior_rnn/{}/model.th'.format(dataset) #new
+    model = 'mod/prior_rnn/{}/model.th'.format(dataset)
  
     params['optimizer'] = {
         'name': 'finetune_prior_rnn',
@@ -295,20 +293,24 @@ def _rnn_hypers(params):
     params['random_state'] = _random_state() 
     return params
 
+
 def test_formula_random():
     params = base_formula.copy()
     params['optimizer'] = base_random
     return params
+
 
 def test_formula_rnn():
     params = base_formula.copy()
     params['optimizer'] = base_random
     return params
 
+
 def test_pipeline_random():
     params = base_pipeline.copy()
     params['optimizer'] = base_random
     return params
+
 
 def test_pipeline_rnn():
     params = base_pipeline.copy()
